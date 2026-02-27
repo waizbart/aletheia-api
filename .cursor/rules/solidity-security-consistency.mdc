@@ -1,0 +1,53 @@
+---
+description: Security and consistency rules for Solidity smart contract development.
+globs: **/*.sol
+---
+# Solidity Security And Consistency
+
+When writing or reviewing Solidity contracts, prioritize security and state consistency over feature speed.
+
+## Core Security Rules
+
+- Follow Checks-Effects-Interactions to reduce reentrancy risk.
+- Minimize external calls and treat all external contracts as untrusted.
+- Validate all user inputs and critical assumptions with `require`/custom errors.
+- Apply strict access control for privileged functions (`onlyOwner`, role-based controls).
+- Protect sensitive state-changing functions with pausability/emergency stop when relevant.
+- Avoid `tx.origin` for authorization.
+- Emit events for critical state changes and privileged actions.
+
+## Consistency And Correctness
+
+- Define and preserve explicit invariants (e.g., supply totals, balance conservation).
+- Update state atomically and avoid partial writes before possible failure points.
+- Keep accounting logic deterministic and free from hidden side effects.
+- Use pull-over-push payment patterns where possible.
+- Guard against replay/double-execution in workflows that require uniqueness.
+- Use Solidity `^0.8.x` safety checks (overflow/underflow) and avoid unnecessary `unchecked`.
+
+## External Interaction Safety
+
+- Use OpenZeppelin audited primitives for ERC standards, access control, and guards when possible.
+- Handle ERC20 interactions defensively (non-standard return values, fee-on-transfer behavior).
+- Be explicit about trust boundaries for oracles, bridges, and admin-controlled dependencies.
+- Add slippage/deadline checks for value-sensitive operations.
+
+## Upgradeability And Storage Safety
+
+- Choose upgradeability intentionally; if using proxies, follow a consistent pattern (UUPS/Transparent).
+- Never reorder or remove storage variables in upgradeable contracts.
+- Reserve storage gaps when using upgradeable base contracts.
+- Secure upgrade/admin paths with timelocks or multisig where appropriate.
+
+## Testing And Verification Requirements
+
+- Include unit tests for happy paths, failure paths, and permission boundaries.
+- Add invariant/property-style tests for critical accounting and authorization rules.
+- Add fuzz tests for edge conditions and unexpected input combinations.
+- Run static analysis/security tooling (e.g., Slither) for every meaningful contract change.
+- Treat any high-severity finding as a release blocker.
+
+## Delivery Gate
+
+- Do not mark contract work complete without tests and security checks passing.
+- If a trade-off is made for gas vs safety, document the rationale explicitly.

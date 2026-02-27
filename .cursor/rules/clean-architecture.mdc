@@ -1,0 +1,78 @@
+---
+description: Rule enforcing Clean Architecture principles for organizing code and maintaining separation of concerns.
+globs: **/*.go
+---
+When designing and implementing code, ALWAYS follow Clean Architecture principles:
+
+## Core Principles
+
+- **Dependency Rule**: Dependencies point inward. Inner layers must not depend on outer layers. Outer layers depend on inner layers.
+- **Separation of Concerns**: Each layer has a single, well-defined responsibility.
+- **Independence**: Business logic is independent of frameworks, databases, UI, and external agencies.
+- **Testability**: Business logic remains testable without infrastructure wiring.
+
+## Layer Structure
+
+### 1. Domain/Entity Layer (Innermost)
+
+- Contains business entities and core business logic.
+- Pure Go code with no external dependencies.
+- No framework or transport types.
+
+### 2. Application/Use Case Layer
+
+- Contains application-specific business logic and use cases.
+- Orchestrates domain entities and business workflows.
+- Depends only on the domain layer.
+- Defines interfaces (ports) for repositories and external services.
+
+### 3. Interface/Adapter Layer (Outermost)
+
+- Contains adapters for external concerns (HTTP handlers, gRPC servers, CLI).
+- Implements interfaces defined in the application layer.
+- Translates transport DTOs to use-case inputs and back.
+
+### 4. Infrastructure Layer
+
+- Contains implementations of external concerns (database, file system, external APIs).
+- Implements repository interfaces defined in the application layer.
+- Keeps persistence/integration details out of domain and use cases.
+
+## Dependency Injection
+
+- Use dependency injection to provide implementations to layers.
+- Pass interfaces, not concrete types, between layers.
+- Prefer constructor injection.
+
+## Package Organization
+
+```
+project/
+├── cmd/                  # entrypoints and wiring
+├── internal/domain/      # entities and core rules
+├── internal/usecase/     # application workflows and ports
+├── internal/handler/     # HTTP/gRPC adapters
+└── internal/repository/  # infrastructure implementations
+```
+
+## Rules to Follow
+
+### DO
+
+- Keep business logic in the domain/application layers.
+- Use interfaces to decouple layers.
+- Make dependencies explicit through constructor parameters.
+- Keep domain entities pure (no DB/HTTP tags).
+- Use DTOs only at boundaries (handler/repository).
+- Keep use cases focused on a single business operation.
+- Convert domain errors to transport-specific errors at the adapter layer.
+
+### DON'T
+
+- Don't let domain entities depend on external packages (except standard library).
+- Don't put business logic in handlers or repositories.
+- Don't import infrastructure packages in domain/application layers.
+- Don't use framework-specific types in domain entities.
+- Don't mix concerns between transport, business rules, and persistence.
+
+Remember: treat frameworks, databases, and transports as replaceable details around stable business rules.

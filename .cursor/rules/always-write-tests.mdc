@@ -1,0 +1,25 @@
+---
+description: Rule requiring tests to be written for all code changes and new features.
+globs: **/*.go
+---
+When writing or modifying code, ALWAYS write corresponding tests:
+
+## Required Coverage
+
+- Add or update tests for every new feature, bug fix, and refactor that changes behavior.
+- Cover happy paths, validation failures, and key edge cases.
+- If you modify untested code, add the missing tests in the same task.
+
+## Go Testing Standard
+
+- Use Go's `testing` package and keep tests in `_test.go` files.
+- Prefer table-driven tests for scenario-heavy logic.
+- Use `t.Run()` to group related cases and `t.Helper()` for shared helpers.
+- Mock external dependencies (database, network, filesystem) for unit tests.
+
+## Completion Gate
+
+- Do not consider implementation complete until tests are passing.
+- Run `go test ./...` before finalizing changes.
+
+Remember: tests are mandatory deliverables, not optional follow-up work.

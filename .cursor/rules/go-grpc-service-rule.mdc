@@ -1,0 +1,14 @@
+---
+description: Specific guidelines for implementing gRPC services in Go.
+globs: **/grpc/**/*.go
+---
+When working with gRPC services in Go:
+
+- Define your Protocol Buffer messages and service.
+- Generate Go code from the Proto file using `protoc`.
+- Implement the gRPC server in Go, handling requests and responses.
+- Handle errors properly and implement proper validation.
+- Use appropriate gRPC status codes and error handling patterns.
+- For database interactions, follow the guidelines in `database-interaction-best-practices.mdc`.
+- Consider implementing interceptors for cross-cutting concerns (logging, authentication, tracing).
+- Follow gRPC best practices for streaming, deadlines, and cancellation.

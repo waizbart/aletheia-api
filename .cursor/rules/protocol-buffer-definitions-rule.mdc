@@ -1,0 +1,49 @@
+---
+description: Rule for handling Protocol Buffer definition files in the project.
+globs: **/*.proto
+---
+When working with `.proto` files:
+
+## Message and Service Definitions
+
+- Define clear and concise messages and services.
+- Use proper data types and naming conventions (PascalCase for messages, camelCase for fields).
+- Ensure the `go_package` option is set correctly for Go code generation.
+- Use descriptive field names that clearly indicate their purpose.
+
+## Field Numbering
+
+- Reserve field numbers 1-15 for frequently used fields (they use 1 byte instead of 2).
+- Never reuse field numbers, even if a field is removed (mark as reserved or deprecated instead).
+- Use reserved keyword for deleted fields to prevent accidental reuse: `reserved 2, 15, 9 to 11;`
+- Use reserved field names for deleted fields: `reserved "old_field_name";`
+
+## Package and Import Organization
+
+- Use clear, hierarchical package names (e.g., `com.company.service.v1`).
+- Organize imports logically and remove unused imports.
+- Use consistent versioning in package names (e.g., `v1`, `v2`) for API evolution.
+- Group related messages in the same package when appropriate.
+
+## Service Definition Guidelines
+
+- Design service methods with clear request/response message types.
+- Use appropriate streaming types (unary, server streaming, client streaming, bidirectional streaming).
+- Document service methods with clear comments explaining their purpose and behavior.
+- Consider idempotency and side effects when designing service methods.
+
+## Versioning and Backward Compatibility
+
+- Never change field numbers of existing fields.
+- Use optional fields for new additions to maintain backward compatibility.
+- Mark deprecated fields with the `deprecated` option and add comments explaining migration path.
+- Consider using wrapper messages for optional primitive types when needed.
+- Plan for future changes by reserving field number ranges for future use.
+
+## Best Practices
+
+- Keep message definitions focused and avoid overly nested structures.
+- Use enums for fixed sets of values instead of strings or integers.
+- Use `oneof` for mutually exclusive fields when appropriate.
+- Consider using `google.protobuf.Timestamp` for time fields instead of custom formats.
+- Validate that all required fields are properly set before generating code.
