@@ -1,0 +1,10 @@
+﻿.git
+.cursor
+.env
+.env.example
+*.exe
+*.test
+*.out
+coverage.*
+README.md
+docker-compose.yml
