@@ -1,0 +1,210 @@
+openapi: "3.0.3"
+info:
+  title: Aletheia API
+  description: Content certification API that uses cryptographic hashing and blockchain registration to prove the authenticity of images and videos.
+  version: "0.1.0"
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Certificates
+    description: Content certification and verification
+  - name: Health
+    description: Service health checks
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns 200 when the service is running.
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /certificates:
+    post:
+      tags: [Certificates]
+      summary: Certify content
+      description: |
+        Upload an image or video file. The API computes a SHA-256 hash,
+        registers it on the blockchain, and stores the certificate in the database.
+      operationId: certifyContent
+      parameters:
+        - in: header
+          name: X-Registrant
+          schema:
+            type: string
+          description: Identifier of the trusted registrant (e.g. wallet address or organization ID).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image or video file to certify (max 100 MB).
+      responses:
+        "201":
+          description: Content certified successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Certificate"
+        "400":
+          description: Missing or invalid file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: Unsupported file type (not an image or video)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Content already certified or blockchain error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /certificates/verify:
+    get:
+      tags: [Certificates]
+      summary: Verify content by hash
+      description: Check whether a SHA-256 hash has been certified.
+      operationId: verifyByHash
+      parameters:
+        - in: query
+          name: hash
+          required: true
+          schema:
+            type: string
+          description: SHA-256 hex-encoded content hash.
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      responses:
+        "200":
+          description: Content is certified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+        "404":
+          description: Content is not certified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+        "400":
+          description: Missing hash parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      tags: [Certificates]
+      summary: Verify content by file upload
+      description: Upload an image or video to check whether its content has been certified.
+      operationId: verifyByFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image or video file to verify (max 100 MB).
+      responses:
+        "200":
+          description: Content is certified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+        "404":
+          description: Content is not certified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+        "400":
+          description: Missing or invalid file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: Unsupported file type (not an image or video)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  schemas:
+    Certificate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        content_hash:
+          type: string
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        registrant:
+          type: string
+          example: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
+        tx_hash:
+          type: string
+          example: "0xabc123def456..."
+        block_number:
+          type: integer
+          format: int64
+          example: 12345
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-02-25T12:00:00Z"
+
+    VerifyResponse:
+      type: object
+      properties:
+        certified:
+          type: boolean
+          example: true
+        certificate:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/Certificate"
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "missing or invalid file field"
