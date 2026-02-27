@@ -1,4 +1,4 @@
-# Aletheia API
+# Aletheia API TESTE
 
 Content certification API that uses cryptographic hashing and blockchain registration to prove the authenticity of images and videos, preventing false AI-generated content from being passed off as real.
 
