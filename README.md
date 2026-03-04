@@ -4,8 +4,8 @@ Content certification API that uses cryptographic hashing and blockchain registr
 
 ## How It Works
 
-1. **Certify** — A trusted source uploads an image or video. The API computes a SHA-256 hash, registers it on an EVM-compatible blockchain, and stores the certificate metadata in PostgreSQL.
-2. **Verify** — Anyone can upload an image/video or provide a hash to check whether it has been certified. The API looks up the hash and returns the certificate details if it exists.
+1. **Certify** — A trusted source uploads an image or video. The API computes a SHA-256 hash, computes a perceptual hash for images, registers the content hash on blockchain, and stores certificate metadata in PostgreSQL.
+2. **Verify** — Anyone can upload an image/video or provide a hash to check whether it has been certified. The API first checks exact SHA-256 matches; for images it can fall back to perceptual-hash matching.
 
 ## Prerequisites
 
@@ -144,7 +144,8 @@ GET /certificates/verify?hash=<sha256-hex>
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgres://user:pass@localhost:5432/aletheia?sslmode=disable` |
 | `RPC_URL` | EVM JSON-RPC endpoint | `https://rpc.sepolia.org` |
-| `PRIVATE_KEY` | Hex-encoded private key for signing transactions | `abc123...` |
+| `FROM_ADDRESS` | Unlocked account address used by `eth_sendTransaction` (optional; if absent, service falls back to stub) | `0x...` |
+| `PRIVATE_KEY` | Backward-compatible fallback env used as sender field if `FROM_ADDRESS` is not set | `0x...` |
 | `CONTRACT_ADDRESS` | Deployed certification contract address | `0x...` |
 | `SERVER_PORT` | HTTP server port | `8080` |
 
