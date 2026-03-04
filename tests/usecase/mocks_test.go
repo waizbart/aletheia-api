@@ -12,8 +12,9 @@ type errReader struct{}
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("read error") }
 
 type mockRepo struct {
-	saveFn       func(ctx context.Context, cert *domain.Certificate) error
-	findByHashFn func(ctx context.Context, hash string) (*domain.Certificate, error)
+	saveFn                 func(ctx context.Context, cert *domain.Certificate) error
+	findByHashFn           func(ctx context.Context, hash string) (*domain.Certificate, error)
+	findByPerceptualHashFn func(ctx context.Context, hash uint64, maxDistance int) (*domain.Certificate, error)
 }
 
 func (m *mockRepo) Save(ctx context.Context, cert *domain.Certificate) error {
@@ -22,6 +23,13 @@ func (m *mockRepo) Save(ctx context.Context, cert *domain.Certificate) error {
 
 func (m *mockRepo) FindByHash(ctx context.Context, hash string) (*domain.Certificate, error) {
 	return m.findByHashFn(ctx, hash)
+}
+
+func (m *mockRepo) FindByPerceptualHash(ctx context.Context, hash uint64, maxDistance int) (*domain.Certificate, error) {
+	if m.findByPerceptualHashFn == nil {
+		return nil, nil
+	}
+	return m.findByPerceptualHashFn(ctx, hash, maxDistance)
 }
 
 type mockBlockchain struct {

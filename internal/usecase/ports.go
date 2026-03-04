@@ -9,6 +9,7 @@ import (
 type CertificateRepository interface {
 	Save(ctx context.Context, cert *domain.Certificate) error
 	FindByHash(ctx context.Context, contentHash string) (*domain.Certificate, error)
+	FindByPerceptualHash(ctx context.Context, hash uint64, maxDistance int) (*domain.Certificate, error)
 }
 
 type BlockchainService interface {
