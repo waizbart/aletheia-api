@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -28,13 +29,18 @@ type VerifyOutput struct {
 
 func (uc *VerifyUseCase) Execute(ctx context.Context, in VerifyInput) (*VerifyOutput, error) {
 	hash := in.Hash
+	var perceptualHash *uint64
 
 	if in.Content != nil {
-		computed, err := domain.HashContent(in.Content)
+		content, err := io.ReadAll(in.Content)
 		if err != nil {
-			return nil, fmt.Errorf("verify: %w", err)
+			return nil, fmt.Errorf("verify: hashing content: %w", err)
 		}
+
+		computed, _ := domain.HashContent(bytes.NewReader(content))
 		hash = computed
+
+		perceptualHash = domain.PerceptualHashFromBytes(content)
 	}
 
 	if hash == "" {
@@ -47,7 +53,15 @@ func (uc *VerifyUseCase) Execute(ctx context.Context, in VerifyInput) (*VerifyOu
 	}
 
 	if cert == nil {
-		return &VerifyOutput{Certified: false}, nil
+		if perceptualHash != nil {
+			cert, err = uc.repo.FindByPerceptualHash(ctx, *perceptualHash, 8)
+			if err != nil {
+				return nil, fmt.Errorf("verify: %w", err)
+			}
+		}
+		if cert == nil {
+			return &VerifyOutput{Certified: false}, nil
+		}
 	}
 
 	return &VerifyOutput{Certified: true, Certificate: cert}, nil
