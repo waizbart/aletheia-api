@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -28,9 +29,18 @@ type CertifyOutput struct {
 }
 
 func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (*CertifyOutput, error) {
-	contentHash, err := domain.HashContent(in.Content)
+	content, err := io.ReadAll(in.Content)
+	if err != nil {
+		return nil, fmt.Errorf("certify: hashing content: %w", err)
+	}
+
+	contentHash, err := domain.HashContent(bytes.NewReader(content))
 	if err != nil {
 		return nil, fmt.Errorf("certify: %w", err)
+	}
+	perceptualHash, err := domain.PerceptualHashFromBytes(content)
+	if err != nil {
+		return nil, fmt.Errorf("certify: computing perceptual hash: %w", err)
 	}
 
 	existing, err := uc.repo.FindByHash(ctx, contentHash)
@@ -47,11 +57,12 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (*Certif
 	}
 
 	cert := &domain.Certificate{
-		ContentHash: contentHash,
-		Registrant:  in.Registrant,
-		TxHash:      txHash,
-		BlockNumber: blockNum,
-		CreatedAt:   time.Now().UTC(),
+		ContentHash:    contentHash,
+		PerceptualHash: perceptualHash,
+		Registrant:     in.Registrant,
+		TxHash:         txHash,
+		BlockNumber:    blockNum,
+		CreatedAt:      time.Now().UTC(),
 	}
 
 	if err := uc.repo.Save(ctx, cert); err != nil {

@@ -32,7 +32,10 @@ func main() {
 	log.Println("connected to PostgreSQL")
 
 	certRepo := repository.NewPostgresCertificateRepo(db)
-	chainSvc := repository.NewStubBlockchainService()
+	chainSvc, err := repository.NewBlockchainServiceFromEnv()
+	if err != nil {
+		log.Fatalf("initializing blockchain service: %v", err)
+	}
 
 	certifyUC := usecase.NewCertifyUseCase(certRepo, chainSvc)
 	verifyUC := usecase.NewVerifyUseCase(certRepo)

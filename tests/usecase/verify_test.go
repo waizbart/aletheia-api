@@ -1,8 +1,12 @@
 package usecase_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"strings"
 	"testing"
 
@@ -70,6 +74,22 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 			input:   usecase.VerifyInput{Hash: "abc123"},
 			wantErr: "db error",
 		},
+		{
+			name: "by perceptual hash fallback",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				findByPerceptualHashFn: func(_ context.Context, _ uint64, maxDistance int) (*domain.Certificate, error) {
+					if maxDistance != 8 {
+						t.Fatalf("maxDistance = %d, want 8", maxDistance)
+					}
+					return &domain.Certificate{ContentHash: "perceptual"}, nil
+				},
+			},
+			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantCert: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -95,4 +115,19 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 			}
 		})
 	}
+}
+
+func sampleJPEG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 16; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x * 10), G: uint8(y * 10), B: 120, A: 255})
+		}
+	}
+	var b bytes.Buffer
+	if err := jpeg.Encode(&b, img, &jpeg.Options{Quality: 80}); err != nil {
+		t.Fatalf("encode sample jpeg: %v", err)
+	}
+	return b.Bytes()
 }

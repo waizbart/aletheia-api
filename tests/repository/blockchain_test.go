@@ -2,6 +2,8 @@ package repository_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -33,5 +35,59 @@ func TestStubBlockchainService_IsHashRegistered(t *testing.T) {
 	}
 	if registered {
 		t.Error("expected false, got true")
+	}
+}
+
+func TestNewBlockchainServiceFromEnv_UsesStubWhenEnvMissing(t *testing.T) {
+	t.Setenv("RPC_URL", "")
+	t.Setenv("PRIVATE_KEY", "")
+	t.Setenv("CONTRACT_ADDRESS", "")
+
+	svc, err := repository.NewBlockchainServiceFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, ok := svc.(*repository.StubBlockchainService); !ok {
+		t.Fatalf("expected stub service, got %T", svc)
+	}
+}
+
+func TestNewBlockchainServiceFromEnv_InvalidConfig(t *testing.T) {
+	t.Setenv("RPC_URL", "http://127.0.0.1:1")
+	t.Setenv("FROM_ADDRESS", "0x1111111111111111111111111111111111111111")
+	t.Setenv("CONTRACT_ADDRESS", "invalid")
+
+	_, err := repository.NewBlockchainServiceFromEnv()
+	if err == nil {
+		t.Fatal("expected error for invalid configuration")
+	}
+}
+
+func TestRPCBlockchainService_RegisterHash(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0xtxhash"}`))
+	}))
+	defer server.Close()
+
+	svc, err := repository.NewEVMBlockchainService(
+		server.URL,
+		"0x1111111111111111111111111111111111111111",
+		"0x2222222222222222222222222222222222222222",
+	)
+	if err != nil {
+		t.Fatalf("unexpected constructor error: %v", err)
+	}
+
+	tx, block, err := svc.RegisterHash(context.Background(), strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatalf("unexpected register error: %v", err)
+	}
+	if tx != "0xtxhash" {
+		t.Fatalf("tx = %q, want 0xtxhash", tx)
+	}
+	if block != 0 {
+		t.Fatalf("block = %d, want 0", block)
 	}
 }
