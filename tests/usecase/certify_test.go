@@ -1,8 +1,12 @@
 package usecase_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"strings"
 	"testing"
 
@@ -35,6 +39,29 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 			},
 			input: usecase.CertifyInput{
 				Content:    strings.NewReader("test content"),
+				Registrant: "tester",
+			},
+		},
+		{
+			name: "image sets perceptual hash",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				saveFn: func(_ context.Context, cert *domain.Certificate) error {
+					if cert.PerceptualHash == nil {
+						t.Fatal("expected perceptual hash for image content")
+					}
+					return nil
+				},
+			},
+			chain: &mockBlockchain{
+				registerHashFn: func(_ context.Context, _ string) (string, uint64, error) {
+					return "0xabc", 1, nil
+				},
+			},
+			input: usecase.CertifyInput{
+				Content:    bytes.NewReader(sampleJPEGForCertify(t)),
 				Registrant: "tester",
 			},
 		},
@@ -143,4 +170,19 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 			}
 		})
 	}
+}
+
+func sampleJPEGForCertify(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 16; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x * 10), G: uint8(y * 10), B: 120, A: 255})
+		}
+	}
+	var b bytes.Buffer
+	if err := jpeg.Encode(&b, img, &jpeg.Options{Quality: 80}); err != nil {
+		t.Fatalf("encode sample jpeg: %v", err)
+	}
+	return b.Bytes()
 }
