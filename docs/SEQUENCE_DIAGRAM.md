@@ -1,4 +1,5 @@
 ```mermaid
+%%{init: {'theme': 'default'}}%%
 sequenceDiagram
     actor U as 👤 Usuário
     participant SDK as 📱 SDK / Dispositivo<br/>(Secure Enclave + C2PA)
