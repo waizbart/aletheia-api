@@ -9,14 +9,21 @@ on:
 jobs:
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      CGO_ENABLED: "1"
     steps:
     - uses: actions/checkout@v4
+
+    - name: Install OpenCV
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends pkg-config libopencv-dev
 
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22.4'
+        go-version: '1.24'
 
     - name: Build
       run: go build -v ./...

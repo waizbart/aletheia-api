@@ -16,11 +16,13 @@ import (
 
 func TestVerifyUseCase_Execute(t *testing.T) {
 	tests := []struct {
-		name     string
-		repo     *mockRepo
-		input    usecase.VerifyInput
-		wantCert bool
-		wantErr  string
+		name      string
+		repo      *mockRepo
+		extractor *mockExtractor
+		blobs     *mockBlobStore
+		input     usecase.VerifyInput
+		wantCert  bool
+		wantErr   string
 	}{
 		{
 			name: "by hash found",
@@ -29,8 +31,10 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 					return &domain.Certificate{ContentHash: hash}, nil
 				},
 			},
-			input:    usecase.VerifyInput{Hash: "abc123"},
-			wantCert: true,
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{Hash: "abc123"},
+			wantCert:  true,
 		},
 		{
 			name: "by hash not found",
@@ -39,30 +43,38 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 					return nil, nil
 				},
 			},
-			input:    usecase.VerifyInput{Hash: "abc123"},
-			wantCert: false,
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{Hash: "abc123"},
+			wantCert:  false,
 		},
 		{
-			name: "by content found",
+			name: "by content sha256 hit",
 			repo: &mockRepo{
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return &domain.Certificate{ContentHash: "computed"}, nil
 				},
 			},
-			input:    usecase.VerifyInput{Content: strings.NewReader("test content")},
-			wantCert: true,
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{Content: strings.NewReader("test content")},
+			wantCert:  true,
 		},
 		{
-			name:    "no hash no content",
-			repo:    &mockRepo{},
-			input:   usecase.VerifyInput{},
-			wantErr: "no content or hash provided",
+			name:      "no hash no content",
+			repo:      &mockRepo{},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{},
+			wantErr:   "no content or hash provided",
 		},
 		{
-			name:    "hash error from broken reader",
-			repo:    &mockRepo{},
-			input:   usecase.VerifyInput{Content: errReader{}},
-			wantErr: "hashing content",
+			name:      "hash error from broken reader",
+			repo:      &mockRepo{},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{Content: errReader{}},
+			wantErr:   "hashing content",
 		},
 		{
 			name: "repo error",
@@ -71,43 +83,212 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 					return nil, errors.New("db error")
 				},
 			},
-			input:   usecase.VerifyInput{Hash: "abc123"},
-			wantErr: "db error",
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{Hash: "abc123"},
+			wantErr:   "db error",
 		},
 		{
-			name: "by perceptual hash fallback",
+			name: "by content non-image returns not certified",
 			repo: &mockRepo{
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
-				findByPerceptualHashFn: func(_ context.Context, _ uint64, maxDistance int) (*domain.Certificate, error) {
-					if maxDistance != 8 {
-						t.Fatalf("maxDistance = %d, want 8", maxDistance)
+			},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{Content: strings.NewReader("not an image")},
+			wantCert:  false,
+		},
+		{
+			name: "phash candidate matches via ORB",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				findCandidatesByPHashesFn: func(_ context.Context, phashes [][32]byte, maxDist, topK int) ([]*domain.Certificate, error) {
+					if len(phashes) != 4 {
+						t.Fatalf("expected 4 phash variants, got %d", len(phashes))
 					}
-					return &domain.Certificate{ContentHash: "perceptual"}, nil
+					if maxDist != domain.MaxPHashDistance {
+						t.Fatalf("maxDist = %d, want %d", maxDist, domain.MaxPHashDistance)
+					}
+					if topK != 20 {
+						t.Fatalf("topK = %d, want 20", topK)
+					}
+					return []*domain.Certificate{{
+						ID:           "cert-1",
+						ContentHash:  "stored",
+						Signature:    &domain.FeatureSignature{Descriptors: []byte{0x01}, Keypoints: []byte{0x02}},
+						ImageBlobKey: "stored.jpg",
+					}}, nil
+				},
+			},
+			extractor: &mockExtractor{
+				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
+					return domain.MatchDecision{Matched: true, Inliers: 100, ColorMean: 1.0, ColorMax: 5.0}, nil
+				},
+			},
+			blobs:    &mockBlobStore{},
+			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantCert: true,
+		},
+		{
+			name: "phash candidates exist but ORB rejects all",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+					return []*domain.Certificate{{
+						ID:           "cert-1",
+						Signature:    &domain.FeatureSignature{Descriptors: []byte{0x01}, Keypoints: []byte{0x02}},
+						ImageBlobKey: "stored.jpg",
+					}}, nil
+				},
+			},
+			extractor: &mockExtractor{
+				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
+					return domain.MatchDecision{Matched: false, Inliers: 5}, nil
+				},
+			},
+			blobs:    &mockBlobStore{},
+			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantCert: false,
+		},
+		{
+			name: "phash returns no candidates",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+					return nil, nil
+				},
+			},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantCert:  false,
+		},
+		{
+			name: "phash query error",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+					return nil, errors.New("phash db error")
+				},
+			},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantErr:   "phash db error",
+		},
+		{
+			name: "extractor compute fails returns not certified",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+			},
+			extractor: &mockExtractor{
+				computeFn: func(_ context.Context, _ []byte) (*domain.FeatureSignature, []byte, error) {
+					return nil, nil, errors.New("no features")
+				},
+			},
+			blobs:    &mockBlobStore{},
+			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantCert: false,
+		},
+		{
+			name: "candidates with nil signature or empty blob key are skipped",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+					return []*domain.Certificate{
+						{ID: "no-sig", ImageBlobKey: "x.jpg"},
+						{ID: "no-blob", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}},
+					}, nil
+				},
+			},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantCert:  false,
+		},
+		{
+			name: "extractor match error skips candidate",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+					return []*domain.Certificate{{
+						ID:           "cert-1",
+						Signature:    &domain.FeatureSignature{Descriptors: []byte{0x01}},
+						ImageBlobKey: "stored.jpg",
+					}}, nil
+				},
+			},
+			extractor: &mockExtractor{
+				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
+					return domain.MatchDecision{}, errors.New("match boom")
+				},
+			},
+			blobs:    &mockBlobStore{},
+			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantCert: false,
+		},
+		{
+			name: "verify by hash returns repo error wrapped",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, errors.New("hash db down")
+				},
+			},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input:     usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantErr:   "hash db down",
+		},
+		{
+			name: "blob fetch failure skips candidate but continues",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+					return []*domain.Certificate{
+						{ID: "broken", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}, ImageBlobKey: "missing.jpg"},
+						{ID: "ok", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}, ImageBlobKey: "ok.jpg"},
+					}, nil
+				},
+			},
+			extractor: &mockExtractor{
+				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
+					return domain.MatchDecision{Matched: true}, nil
+				},
+			},
+			blobs: &mockBlobStore{
+				getFn: func(_ context.Context, key string) ([]byte, error) {
+					if key == "missing.jpg" {
+						return nil, errors.New("not found")
+					}
+					return []byte("ref"), nil
 				},
 			},
 			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
 			wantCert: true,
 		},
-		{
-			name: "perceptual fallback repo error",
-			repo: &mockRepo{
-				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
-					return nil, nil
-				},
-				findByPerceptualHashFn: func(_ context.Context, _ uint64, _ int) (*domain.Certificate, error) {
-					return nil, errors.New("perceptual db error")
-				},
-			},
-			input:   usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
-			wantErr: "perceptual db error",
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uc := usecase.NewVerifyUseCase(tt.repo)
+			uc := usecase.NewVerifyUseCase(tt.repo, tt.extractor, tt.blobs)
 			out, err := uc.Execute(context.Background(), tt.input)
 
 			if tt.wantErr != "" {

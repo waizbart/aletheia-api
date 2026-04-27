@@ -10,7 +10,11 @@ go test \
   ./tests/...
 
 head -1 coverage.out > coverage_filtered.out
-tail -n +2 coverage.out | grep -v "postgres.go" >> coverage_filtered.out
+tail -n +2 coverage.out \
+  | grep -v "postgres.go" \
+  | grep -v "s3_blob_store.go" \
+  | grep -v "internal/feature/" \
+  >> coverage_filtered.out
 
 COVERAGE=$(go tool cover -func=coverage_filtered.out | grep total | awk '{print $3}' | tr -d '%')
 

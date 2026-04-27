@@ -1,15 +1,28 @@
-FROM golang:1.24-alpine3.21 AS builder
+FROM golang:1.24-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libopencv-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o /bin/aletheia-api ./cmd/api
+RUN CGO_ENABLED=1 go build -o /bin/aletheia-api ./cmd/api
 
-FROM alpine:3.21
+FROM debian:bookworm-slim
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    tzdata \
+    libopencv-core406 \
+    libopencv-imgproc406 \
+    libopencv-imgcodecs406 \
+    libopencv-features2d406 \
+    libopencv-calib3d406 \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /bin/aletheia-api /bin/aletheia-api
 COPY migrations /migrations
