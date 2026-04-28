@@ -45,7 +45,7 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _ string) (string, uint64, error) {
+				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
 					return "0xabc", 1, nil
 				},
 			},
@@ -72,11 +72,24 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 					if cert.ImageBlobKey == "" {
 						t.Fatal("expected blob key for image content")
 					}
+					if cert.FeatureCommitment == nil {
+						t.Fatal("expected feature commitment to be set")
+					}
+					expected := domain.FeatureCommitment(cert.PHash, cert.Signature)
+					if *cert.FeatureCommitment != expected {
+						t.Fatalf("feature commitment on cert does not match domain helper")
+					}
 					return nil
 				},
 			},
 			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _ string) (string, uint64, error) {
+				registerHashFn: func(_ context.Context, contentHash, featureCommitment string) (string, uint64, error) {
+					if len(contentHash) != 64 {
+						t.Fatalf("contentHash forwarded to chain has wrong length: %d", len(contentHash))
+					}
+					if len(featureCommitment) != 64 {
+						t.Fatalf("featureCommitment forwarded to chain has wrong length: %d", len(featureCommitment))
+					}
 					return "0xabc", 1, nil
 				},
 			},
@@ -118,7 +131,7 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _ string) (string, uint64, error) {
+				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
 					return "0xabc", 1, nil
 				},
 			},
@@ -205,7 +218,7 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _ string) (string, uint64, error) {
+				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
 					return "", 0, errors.New("chain error")
 				},
 			},
@@ -228,7 +241,7 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _ string) (string, uint64, error) {
+				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
 					return "0xabc", 1, nil
 				},
 			},

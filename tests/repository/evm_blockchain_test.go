@@ -46,17 +46,24 @@ func TestRPCBlockchainService_RegisterHash_ErrorPaths(t *testing.T) {
 		t.Fatalf("unexpected constructor error: %v", err)
 	}
 
-	_, _, err = svc.RegisterHash(context.Background(), "short")
+	validHash := strings.Repeat("a", 64)
+
+	_, _, err = svc.RegisterHash(context.Background(), "short", validHash)
 	if err == nil || !strings.Contains(err.Error(), "hash must be 32-byte hex") {
-		t.Fatalf("expected hash length error, got %v", err)
+		t.Fatalf("expected content hash length error, got %v", err)
 	}
 
-	_, _, err = svc.RegisterHash(context.Background(), strings.Repeat("z", 64))
+	_, _, err = svc.RegisterHash(context.Background(), validHash, "short")
+	if err == nil || !strings.Contains(err.Error(), "feature commitment") {
+		t.Fatalf("expected feature commitment error, got %v", err)
+	}
+
+	_, _, err = svc.RegisterHash(context.Background(), strings.Repeat("z", 64), validHash)
 	if err == nil || !strings.Contains(err.Error(), "decode hash") {
 		t.Fatalf("expected decode hash error, got %v", err)
 	}
 
-	_, _, err = svc.RegisterHash(context.Background(), strings.Repeat("a", 64))
+	_, _, err = svc.RegisterHash(context.Background(), validHash, validHash)
 	if err == nil || !strings.Contains(err.Error(), "send rpc request") {
 		t.Fatalf("expected send rpc request error, got %v", err)
 	}
@@ -89,7 +96,8 @@ func TestRPCBlockchainService_RegisterHash_RPCResponseBranches(t *testing.T) {
 				t.Fatalf("unexpected constructor error: %v", err)
 			}
 
-			_, _, err = svc.RegisterHash(context.Background(), strings.Repeat("a", 64))
+			validHash := strings.Repeat("a", 64)
+			_, _, err = svc.RegisterHash(context.Background(), validHash, validHash)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErrPart) {
 				t.Fatalf("expected error containing %q, got %v", tt.wantErrPart, err)
 			}

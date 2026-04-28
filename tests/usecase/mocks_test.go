@@ -33,12 +33,12 @@ func (m *mockRepo) FindCandidatesByPHashes(ctx context.Context, phashes [][32]by
 }
 
 type mockBlockchain struct {
-	registerHashFn     func(ctx context.Context, hash string) (string, uint64, error)
+	registerHashFn     func(ctx context.Context, contentHash, featureCommitment string) (string, uint64, error)
 	isHashRegisteredFn func(ctx context.Context, hash string) (bool, error)
 }
 
-func (m *mockBlockchain) RegisterHash(ctx context.Context, hash string) (string, uint64, error) {
-	return m.registerHashFn(ctx, hash)
+func (m *mockBlockchain) RegisterHash(ctx context.Context, contentHash, featureCommitment string) (string, uint64, error) {
+	return m.registerHashFn(ctx, contentHash, featureCommitment)
 }
 
 func (m *mockBlockchain) IsHashRegistered(ctx context.Context, hash string) (bool, error) {

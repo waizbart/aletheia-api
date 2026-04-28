@@ -85,7 +85,7 @@ func TestRegisterHash_Success(t *testing.T) {
 	defer server.Close()
 
 	svc, _ := repository.NewEVMBlockchainService(server.URL, validAddr1, validAddr2)
-	tx, block, err := svc.RegisterHash(context.Background(), validHash)
+	tx, block, err := svc.RegisterHash(context.Background(), validHash, validHash)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestRegisterHash_Success(t *testing.T) {
 func TestRegisterHash_InvalidHash(t *testing.T) {
 	svc, _ := repository.NewEVMBlockchainService("http://localhost:8545", validAddr1, validAddr2)
 
-	_, _, err := svc.RegisterHash(context.Background(), "tooshort")
+	_, _, err := svc.RegisterHash(context.Background(), "tooshort", validHash)
 	if err == nil {
 		t.Fatal("expected error for invalid hash")
 	}
@@ -110,7 +110,7 @@ func TestRegisterHash_InvalidHexInHash(t *testing.T) {
 	svc, _ := repository.NewEVMBlockchainService("http://localhost:8545", validAddr1, validAddr2)
 
 	badHash := strings.Repeat("zz", 32)
-	_, _, err := svc.RegisterHash(context.Background(), badHash)
+	_, _, err := svc.RegisterHash(context.Background(), badHash, validHash)
 	if err == nil {
 		t.Fatal("expected error for non-hex hash")
 	}
@@ -123,7 +123,7 @@ func TestRegisterHash_WithOxPrefix(t *testing.T) {
 	defer server.Close()
 
 	svc, _ := repository.NewEVMBlockchainService(server.URL, validAddr1, validAddr2)
-	_, _, err := svc.RegisterHash(context.Background(), "0x"+validHash)
+	_, _, err := svc.RegisterHash(context.Background(), "0x"+validHash, validHash)
 	if err != nil {
 		t.Fatalf("unexpected error with 0x prefix: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestRegisterHash_RPCError(t *testing.T) {
 	defer server.Close()
 
 	svc, _ := repository.NewEVMBlockchainService(server.URL, validAddr1, validAddr2)
-	_, _, err := svc.RegisterHash(context.Background(), validHash)
+	_, _, err := svc.RegisterHash(context.Background(), validHash, validHash)
 	if err == nil || !strings.Contains(err.Error(), "insufficient funds") {
 		t.Fatalf("expected rpc error, got: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestRegisterHash_EmptyResult(t *testing.T) {
 	defer server.Close()
 
 	svc, _ := repository.NewEVMBlockchainService(server.URL, validAddr1, validAddr2)
-	_, _, err := svc.RegisterHash(context.Background(), validHash)
+	_, _, err := svc.RegisterHash(context.Background(), validHash, validHash)
 	if err == nil || !strings.Contains(err.Error(), "empty transaction hash") {
 		t.Fatalf("expected empty tx error, got: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestRegisterHash_InvalidJSON(t *testing.T) {
 	defer server.Close()
 
 	svc, _ := repository.NewEVMBlockchainService(server.URL, validAddr1, validAddr2)
-	_, _, err := svc.RegisterHash(context.Background(), validHash)
+	_, _, err := svc.RegisterHash(context.Background(), validHash, validHash)
 	if err == nil || !strings.Contains(err.Error(), "decode rpc response") {
 		t.Fatalf("expected decode error, got: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestRegisterHash_InvalidJSON(t *testing.T) {
 
 func TestRegisterHash_HTTPFailure(t *testing.T) {
 	svc, _ := repository.NewEVMBlockchainService("http://127.0.0.1:1", validAddr1, validAddr2)
-	_, _, err := svc.RegisterHash(context.Background(), validHash)
+	_, _, err := svc.RegisterHash(context.Background(), validHash, validHash)
 	if err == nil || !strings.Contains(err.Error(), "send rpc request") {
 		t.Fatalf("expected connection error, got: %v", err)
 	}
