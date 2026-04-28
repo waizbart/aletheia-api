@@ -9,15 +9,16 @@ import (
 )
 
 type Certificate struct {
-	ID           string
-	ContentHash  string
-	PHash        *[32]byte
-	Signature    *FeatureSignature
-	ImageBlobKey string
-	Registrant   string
-	TxHash       string
-	BlockNumber  uint64
-	CreatedAt    time.Time
+	ID                string
+	ContentHash       string
+	PHash             *[32]byte
+	Signature         *FeatureSignature
+	FeatureCommitment *[32]byte
+	ImageBlobKey      string
+	Registrant        string
+	TxHash            string
+	BlockNumber       uint64
+	CreatedAt         time.Time
 }
 
 func HashContent(r io.Reader) (string, error) {

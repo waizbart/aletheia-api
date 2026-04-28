@@ -47,9 +47,9 @@ type fakeChain struct {
 	calls int
 }
 
-func (f *fakeChain) RegisterHash(_ context.Context, hash string) (string, uint64, error) {
+func (f *fakeChain) RegisterHash(_ context.Context, contentHash, _ string) (string, uint64, error) {
 	f.calls++
-	return "0xfaketx" + hash[:8], 1, nil
+	return "0xfaketx" + contentHash[:8], 1, nil
 }
 
 func (f *fakeChain) IsHashRegistered(_ context.Context, _ string) (bool, error) {
@@ -144,7 +144,7 @@ func envOr(key, def string) string {
 
 func resetState(t *testing.T, ctx context.Context, db *sql.DB, s3Client *s3.Client, bucket string) {
 	t.Helper()
-	if _, err := db.ExecContext(ctx, "TRUNCATE certificates"); err != nil {
+	if _, err := db.ExecContext(ctx, "TRUNCATE certificates CASCADE"); err != nil {
 		t.Fatalf("truncate certificates: %v", err)
 	}
 

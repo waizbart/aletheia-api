@@ -3,6 +3,7 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -64,20 +65,24 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (*Certif
 		}
 	}
 
-	txHash, blockNum, err := uc.chain.RegisterHash(ctx, contentHash)
+	commitment := domain.FeatureCommitment(phash, signature)
+	commitmentHex := hex.EncodeToString(commitment[:])
+
+	txHash, blockNum, err := uc.chain.RegisterHash(ctx, contentHash, commitmentHex)
 	if err != nil {
 		return nil, fmt.Errorf("certify: registering on chain: %w", err)
 	}
 
 	cert := &domain.Certificate{
-		ContentHash:  contentHash,
-		PHash:        phash,
-		Signature:    signature,
-		ImageBlobKey: blobKey,
-		Registrant:   in.Registrant,
-		TxHash:       txHash,
-		BlockNumber:  blockNum,
-		CreatedAt:    time.Now().UTC(),
+		ContentHash:       contentHash,
+		PHash:             phash,
+		Signature:         signature,
+		FeatureCommitment: &commitment,
+		ImageBlobKey:      blobKey,
+		Registrant:        in.Registrant,
+		TxHash:            txHash,
+		BlockNumber:       blockNum,
+		CreatedAt:         time.Now().UTC(),
 	}
 
 	if err := uc.repo.Save(ctx, cert); err != nil {
