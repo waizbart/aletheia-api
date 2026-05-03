@@ -25,5 +25,6 @@ COPY . .
 RUN go mod tidy
 
 ENV LD_LIBRARY_PATH=/usr/lib
+# ArUco module not needed — skip to avoid requiring opencv_contrib headers
 
-CMD ["go", "run", "main.go"]
+CMD ["go", "run", "-tags", "gocv_specific_modules", "main.go"]

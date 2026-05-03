@@ -17,7 +17,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["go", "run", "main.go"]
+    command: ["go", "run", "-tags", "gocv_specific_modules", "main.go"]
     environment:
       - ONNX_SERVER_URL=http://onnx-worker:8080/predict
       - LD_LIBRARY_PATH=/usr/lib

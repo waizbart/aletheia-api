@@ -22,21 +22,24 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gocv.io/x/gocv"
 )
 
 const (
 	ORIGINAL_FILE_NAME = "aletheia.jpg"
-	// L2: pHash settings (256-bit hash using 16x16 DCT block)
-	PHASH_THRESHOLD = 10 // More lenient for 256 bits
-	PHASH_DIM       = 64
-	PHASH_BLOCK     = 16
 
 	// L3: MobileViT settings
-	L3_THRESHOLD     = 0.85 // Lower threshold for "Bag of Tiles" matching
-	TILE_SIZE        = 224
-	MODEL_INPUT_SIZE = 256
-	LSH_BITS         = 64
-	STANDARDIZED_DIM = 896 // 4 tiles of 224
+	L3_THRESHOLD         = 0.93 // Min fraction of tiles that must match
+	L3_HAMMING_THRESHOLD = 6    // Max bits difference per tile (total across all LSH_WORDS)
+	TILE_SIZE            = 256
+	MODEL_INPUT_SIZE     = 256
+	LSH_BITS             = 256
+	LSH_WORDS            = LSH_BITS / 64 // Number of uint64 words in the hash
+
+	// Proportional resize cap: 3 megapixels (2048×1536)
+	// Images smaller than this keep their original resolution.
+	MAX_IMAGE_AREA = 3_145_728
 )
 
 type PipelineResult struct {
@@ -95,234 +98,227 @@ func main() {
 		}
 		path := filepath.Join(testdataDir, entry.Name())
 		res := runPipeline(path, originalFeatures)
-		
-		matchStr := "MISMATCH"
-		if res.Match {
-			matchStr = "MATCH"
-		}
-		
+
 		filename := entry.Name()
 		if filename == ORIGINAL_FILE_NAME {
 			filename += " (*)"
+		}
+
+		matchStr := "MISMATCH"
+		if res.Match {
+			matchStr = "MATCH"
 		}
 		fmt.Printf("%-30s | %-10s | L%d    | %s\n", filename, matchStr, res.Level, res.Details)
 	}
 }
 
+// TileDict is a dictionary keyed by "col:row" position, mapping to the multi-word SimHash.
+// Each hash is LSH_WORDS × uint64 (e.g. 4 words = 256 bits).
+// This is the structure that gets stored on the blockchain.
+type TileDict map[string][]uint64
+
+// ImageFeatures holds all extracted features for an image.
 type ImageFeatures struct {
-	Path     string
-	SHA256   [32]byte
-	PHash    []uint64
-	L3Hashes []uint64
+	Path    string
+	SHA256  [32]byte
+	TileMap TileDict // SimHash per tile, keyed by "col:row"
 }
 
 func processImage(path string) (*ImageFeatures, error) {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-
-	h1 := sha256.Sum256(data)
-
-	file, _ := os.Open(path)
 	defer file.Close()
+
 	img, _, err := image.Decode(file)
 	if err != nil {
 		return nil, err
 	}
 
-	stdImg := resizeImage(img, STANDARDIZED_DIM, STANDARDIZED_DIM)
-	h2 := computePHashLarge(stdImg)
-	h3, err := computeL3Hashes(stdImg)
+	// 1. Downscale to 3MP (proportional, aspect ratio preserved)
+	stdImg := resizeProportional(img)
+
+	// 2. SHA-256 of the normalized pixel data at 0° (for L1 exact match)
+	h1 := sha256Image(stdImg)
+
+	// 3. Compute L3 tile hashes (SimHash per tile at original 0° orientation)
+	tileMap, err := computeL3TileDict(stdImg)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ImageFeatures{
-		Path:     path,
-		SHA256:   h1,
-		PHash:    h2,
-		L3Hashes: h3,
+		Path:    path,
+		SHA256:  h1,
+		TileMap: tileMap,
 	}, nil
 }
 
 func runPipeline(path string, original *ImageFeatures) PipelineResult {
-	data, err := os.ReadFile(path)
-	if err == nil {
-		h1 := sha256.Sum256(data)
-		if h1 == original.SHA256 {
-			return PipelineResult{Level: 1, Match: true, Details: "Binary Identical"}
-		}
+	file, err := os.Open(path)
+	if err != nil {
+		return PipelineResult{Level: 0, Match: false, Details: "Open Error"}
 	}
-
-	file, _ := os.Open(path)
 	defer file.Close()
+
 	img, _, err := image.Decode(file)
 	if err != nil {
 		return PipelineResult{Level: 0, Match: false, Details: "Decode Error"}
 	}
 
-	// Standardization fixes cropping
-	stdImg := resizeImage(img, STANDARDIZED_DIM, STANDARDIZED_DIM)
+	// 1. Downscale to 3MP (proportional, aspect ratio preserved)
+	stdImg := resizeProportional(img)
 
-	h2 := computePHashLarge(stdImg)
-	dist2 := hammingDistanceLarge(h2, original.PHash)
-	if dist2 <= PHASH_THRESHOLD {
-		return PipelineResult{Level: 2, Match: true, Details: fmt.Sprintf("pHash Dist: %d", dist2)}
+	// 2. SHA-256 at 0° (L1)
+	h1 := sha256Image(stdImg)
+	if h1 == original.SHA256 {
+		return PipelineResult{Level: 1, Match: true, Details: "Normalized Identical"}
 	}
 
-	// L3 with Rotation check + Bag of Tiles
-	bestSim := 0.0
-	bestAngle := 0
-	
-	angles := []int{0, 90, 180, 270}
-	for _, angle := range angles {
-		var currentImg image.Image
-		if angle == 0 {
-			currentImg = stdImg
+	// 3. Compute L3 tile hashes for test image and compare against reference
+	testDict, err := computeL3TileDict(stdImg)
+	if err != nil {
+		return PipelineResult{Level: 3, Match: false, Details: fmt.Sprintf("L3 extraction error: %v", err)}
+	}
+
+	// Debug: log reference vs test hashes
+	log.Printf("[DEBUG] Reference TileMap %d tiles, Test TileMap %d tiles", len(original.TileMap), len(testDict))
+	for key, refHash := range original.TileMap {
+		testHash, ok := testDict[key]
+		if ok {
+			d := hammingMultiWord(refHash, testHash)
+			// Log first word only for brevity
+			log.Printf("[DEBUG] tile %s: ref=0x%016x... test=0x%016x... total_hamming=%d",
+				key, refHash[0], testHash[0], d)
 		} else {
-			currentImg = rotateImage(stdImg, angle)
-		}
-
-		h3, err := computeL3Hashes(currentImg)
-		if err != nil {
-			continue
-		}
-
-		sim := calculateSimilarityBag(h3, original.L3Hashes)
-		if sim > bestSim {
-			bestSim = sim
-			bestAngle = angle
-		}
-		if bestSim >= L3_THRESHOLD {
-			break
+			log.Printf("[DEBUG] tile %s: test=MISSING", key)
 		}
 	}
 
-	if bestSim >= L3_THRESHOLD {
-		details := fmt.Sprintf("Semantic Sim: %.2f%%", bestSim*100)
-		if bestAngle != 0 {
-			details += fmt.Sprintf(" (Rot: %d)", bestAngle)
+	sim, tileResults := compareTileDicts(testDict, original.TileMap)
+
+	// Build per-tile detail string
+	var tileDetails string
+	if tileResults != nil {
+		var matched, total int
+		for _, ok := range tileResults {
+			total++
+			if ok {
+				matched++
+			}
 		}
-		return PipelineResult{Level: 3, Match: true, Details: details}
+		tileDetails = fmt.Sprintf("%d/%d tiles match (%.1f%%)", matched, total, float64(matched)/float64(total)*100)
 	}
 
-	return PipelineResult{Level: 3, Match: false, Details: fmt.Sprintf("Sim: %.2f%% (Dist2: %d)", bestSim*100, dist2)}
+	match := sim >= L3_THRESHOLD
+	return PipelineResult{Level: 3, Match: match, Details: fmt.Sprintf("Tile-by-tile: %s", tileDetails)}
 }
 
-// calculateSimilarityBag allows tiles to match anywhere (robust to shifting)
-func calculateSimilarityBag(h1, h2 []uint64) float64 {
-	if len(h1) == 0 || len(h2) == 0 {
-		return 0
+// compareTileDicts compares two tile dictionaries keyed by "col:row".
+// Each key in the test dict is looked up in the reference dict and compared
+// by Hamming distance. Only keys present in both dicts are compared.
+// Returns the fraction of matching tiles and a per-tile result map.
+// This catches localized tampering (e.g. head removal) while still
+// allowing crops and resolution changes to pass when content matches.
+func hammingMultiWord(a, b []uint64) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	total := 0
+	for i := 0; i < n; i++ {
+		total += bits.OnesCount64(a[i] ^ b[i])
+	}
+	return total
+}
+
+func compareTileDicts(test, ref TileDict) (float64, map[string]bool) {
+	results := make(map[string]bool)
+	if len(test) == 0 || len(ref) == 0 {
+		return 0, results
 	}
 	matchCount := 0
-	m2 := make(map[uint64]int)
-	for _, h := range h2 {
-		m2[h]++
-	}
-	for _, h := range h1 {
-		if m2[h] > 0 {
+	totalCount := 0
+	for key, testHash := range test {
+		refHash, ok := ref[key]
+		if !ok {
+			continue
+		}
+		totalCount++
+		d := hammingMultiWord(testHash, refHash)
+		if d <= L3_HAMMING_THRESHOLD {
+			results[key] = true
 			matchCount++
-			m2[h]--
+		} else {
+			results[key] = false
 		}
 	}
-	sim1 := float64(matchCount) / float64(len(h1))
-	sim2 := float64(matchCount) / float64(len(h2))
-	if sim1 < sim2 { return sim1 }
-	return sim2
-}
-
-// --- L2: 256-bit pHash ---
-
-func computePHashLarge(img image.Image) []uint64 {
-	resized := resizeAndGrayscale(img, PHASH_DIM, PHASH_DIM)
-	var pixels [PHASH_DIM][PHASH_DIM]float64
-	for y := 0; y < PHASH_DIM; y++ {
-		for x := 0; x < PHASH_DIM; x++ {
-			pixels[y][x] = float64(resized.GrayAt(x, y).Y)
-		}
+	if totalCount == 0 {
+		return 0, results
 	}
-	var dct [PHASH_DIM][PHASH_DIM]float64
-	dct2DLarge(&pixels, &dct)
-
-	var values []float64
-	var sum float64
-	for y := 0; y < PHASH_BLOCK; y++ {
-		for x := 0; x < PHASH_BLOCK; x++ {
-			if x == 0 && y == 0 {
-				continue
-			}
-			v := dct[y][x]
-			values = append(values, v)
-			sum += v
-		}
-	}
-	median := sum / float64(len(values))
-
-	hashes := make([]uint64, 4)
-	for i, v := range values {
-		if v > median {
-			hashes[i/64] |= 1 << uint(i%64)
-		}
-	}
-	return hashes
-}
-
-func dct2DLarge(input *[PHASH_DIM][PHASH_DIM]float64, output *[PHASH_DIM][PHASH_DIM]float64) {
-	const N = PHASH_DIM
-	for u := 0; u < N; u++ {
-		for v := 0; v < N; v++ {
-			var sum float64
-			for x := 0; x < N; x++ {
-				for y := 0; y < N; y++ {
-					sum += input[x][y] * 
-						math.Cos((float64(2*x+1)*float64(u)*math.Pi)/(2*N)) * 
-						math.Cos((float64(2*y+1)*float64(v)*math.Pi)/(2*N))
-				}
-			}
-			cu, cv := 1.0, 1.0
-			if u == 0 { cu = 1.0 / math.Sqrt(2) }
-			if v == 0 { cv = 1.0 / math.Sqrt(2) }
-			output[u][v] = 0.25 * cu * cv * sum
-		}
-	}
-}
-
-func hammingDistanceLarge(a, b []uint64) int {
-	dist := 0
-	for i := 0; i < len(a); i++ {
-		dist += bits.OnesCount64(a[i] ^ b[i])
-	}
-	return dist
+	return float64(matchCount) / float64(totalCount), results
 }
 
 // --- Image Utils ---
 
 func resizeImage(img image.Image, w, h int) image.Image {
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	srcBounds := img.Bounds()
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			sx := srcBounds.Min.X + (x*(srcBounds.Dx()))/w
-			sy := srcBounds.Min.Y + (y*(srcBounds.Dy()))/h
-			dst.Set(x, y, img.At(sx, sy))
-		}
+	rgba := image.NewRGBA(img.Bounds())
+	draw.Draw(rgba, rgba.Bounds(), img, img.Bounds().Min, draw.Src)
+
+	mat, err := gocv.ImageToMatRGBA(rgba)
+	if err != nil {
+		return img
 	}
-	return dst
+	defer mat.Close()
+
+	resized := gocv.NewMat()
+	defer resized.Close()
+
+	// InterpolationArea applies anti-aliasing when downscaling
+	gocv.Resize(mat, &resized, image.Point{X: w, Y: h}, 0, 0, gocv.InterpolationArea)
+
+	out, err := resized.ToImage()
+	if err != nil {
+		return img
+	}
+	return out
 }
 
-func resizeAndGrayscale(img image.Image, w, h int) *image.Gray {
-	dst := image.NewGray(image.Rect(0, 0, w, h))
-	srcBounds := img.Bounds()
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			sx := srcBounds.Min.X + (x*(srcBounds.Dx()))/w
-			sy := srcBounds.Min.Y + (y*(srcBounds.Dy()))/h
-			c := img.At(sx, sy)
-			dst.Set(x, y, c)
-		}
+// sha256Image computes the SHA-256 hash of the RGBA pixel data of an image.
+// This captures both structure and color after normalization.
+func sha256Image(img image.Image) [32]byte {
+	bounds := img.Bounds()
+	rgba := image.NewRGBA(bounds)
+	draw.Draw(rgba, bounds, img, bounds.Min, draw.Src)
+	return sha256.Sum256(rgba.Pix)
+}
+
+// resizeProportional scales the image down proportionally so its area
+// does not exceed 3 megapixels (MAX_IMAGE_AREA). Images already smaller
+// than that are returned unchanged.
+func resizeProportional(img image.Image) image.Image {
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	area := w * h
+
+	if area <= MAX_IMAGE_AREA {
+		return img
 	}
-	return dst
+
+	scale := math.Sqrt(float64(MAX_IMAGE_AREA) / float64(area))
+	newW := int(float64(w) * scale)
+	newH := int(float64(h) * scale)
+
+	// Ensure at least 1 pixel in each dimension
+	if newW < 1 {
+		newW = 1
+	}
+	if newH < 1 {
+		newH = 1
+	}
+
+	return resizeImage(img, newW, newH)
 }
 
 func rotateImage(img image.Image, angle int) image.Image {
@@ -361,6 +357,10 @@ var once sync.Once
 
 func initLSH() {
 	once.Do(func() {
+		if loadPCAPlanes("pca_planes.bin") {
+			log.Printf("[INFO] Loaded PCA LSH planes")
+			return
+		}
 		rand.Seed(42)
 		lshPlanes = make([][]float32, LSH_BITS)
 		for i := 0; i < LSH_BITS; i++ {
@@ -369,15 +369,51 @@ func initLSH() {
 				lshPlanes[i][j] = float32(rand.NormFloat64())
 			}
 		}
+		log.Printf("[WARN] Using random LSH planes")
 	})
 }
 
-func computeL3Hashes(img image.Image) ([]uint64, error) {
+func loadPCAPlanes(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	if len(data) < 8 {
+		return false
+	}
+	numBits := int(binary.LittleEndian.Uint32(data[0:4]))
+	numDims := int(binary.LittleEndian.Uint32(data[4:8]))
+	if numBits != LSH_BITS || numDims != 1000 {
+		return false
+	}
+	expected := 8 + numBits*numDims*4
+	if len(data) < expected {
+		return false
+	}
+	lshPlanes = make([][]float32, LSH_BITS)
+	off := 8
+	for i := 0; i < LSH_BITS; i++ {
+		lshPlanes[i] = make([]float32, 1000)
+		for j := 0; j < 1000; j++ {
+			bits := binary.LittleEndian.Uint32(data[off : off+4])
+			lshPlanes[i][j] = math.Float32frombits(bits)
+			off += 4
+		}
+	}
+	return true
+}
+
+// computeL3TileDict computes SimHashes for all tiles in the image and returns
+// a dictionary keyed by "col:row" (grid position) mapping to the multi-word SimHash.
+// This dictionary is what gets stored on the blockchain.
+func computeL3TileDict(img image.Image) (TileDict, error) {
 	initLSH()
 	bounds := img.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
 
-	var hashes []uint64
+	log.Printf("[DEBUG] computeL3TileDict: image %dx%d, tile_size=%d", width, height, TILE_SIZE)
+
+	dict := make(TileDict)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
@@ -387,19 +423,42 @@ func computeL3Hashes(img image.Image) ([]uint64, error) {
 			go func(tx, ty int) {
 				defer wg.Done()
 				tile := cropImage(img, tx, ty, TILE_SIZE, TILE_SIZE)
-				inputTensor, _ := preprocessForModel(tile)
+				inputTensor, err := preprocessForModel(tile)
+				if err != nil {
+					log.Printf("[DEBUG] preprocess error at tile %d,%d: %v", tx, ty, err)
+					return
+				}
 				features, err := remoteInference(inputTensor)
-				if err != nil { return }
+				if err != nil {
+					log.Printf("[DEBUG] inference error at tile %d,%d: %v", tx, ty, err)
+					return
+				}
 				h := computeLSH(features)
+				col := tx / TILE_SIZE
+				row := ty / TILE_SIZE
+				key := fmt.Sprintf("%d:%d", col, row)
+
+				// Debug: log first tile's feature stats and hash
+				if col == 0 && row == 0 {
+					var sum, sumSq float32
+					for _, f := range features[:10] {
+						sum += f
+						sumSq += f * f
+					}
+					log.Printf("[DEBUG] tile %s: hash[0]=0x%016x, first10_features_sum=%.4f, first10_sq_sum=%.4f",
+						key, h[0], sum, sumSq)
+				}
+
 				mu.Lock()
-				hashes = append(hashes, h)
+				dict[key] = h
 				mu.Unlock()
 			}(x, y)
 		}
 	}
 
 	wg.Wait()
-	return hashes, nil
+	log.Printf("[DEBUG] computeL3TileDict: %d tiles computed", len(dict))
+	return dict, nil
 }
 
 func cropImage(img image.Image, x, y, w, h int) image.Image {
@@ -409,23 +468,38 @@ func cropImage(img image.Image, x, y, w, h int) image.Image {
 }
 
 func preprocessForModel(img image.Image) ([]float32, error) {
-	resized := image.NewRGBA(image.Rect(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE))
-	srcBounds := img.Bounds()
-	for y := 0; y < MODEL_INPUT_SIZE; y++ {
-		for x := 0; x < MODEL_INPUT_SIZE; x++ {
-			sx := srcBounds.Min.X + (x*(srcBounds.Dx()))/MODEL_INPUT_SIZE
-			sy := srcBounds.Min.Y + (y*(srcBounds.Dy()))/MODEL_INPUT_SIZE
-			resized.Set(x, y, img.At(sx, sy))
-		}
+	// 1. Convert to RGBA and resize to 256×256 using OpenCV
+	rgba := image.NewRGBA(img.Bounds())
+	draw.Draw(rgba, rgba.Bounds(), img, img.Bounds().Min, draw.Src)
+
+	mat, err := gocv.ImageToMatRGBA(rgba)
+	if err != nil {
+		return nil, err
 	}
+	defer mat.Close()
+
+	resized := gocv.NewMat()
+	defer resized.Close()
+	gocv.Resize(mat, &resized, image.Point{X: MODEL_INPUT_SIZE, Y: MODEL_INPUT_SIZE}, 0, 0, gocv.InterpolationArea)
+
+	// 2. ImageNet normalization (reading RGBA data directly from the Mat)
+	mean := [3]float32{0.485, 0.456, 0.406}
+	std := [3]float32{0.229, 0.224, 0.225}
 
 	data := make([]float32, 3*MODEL_INPUT_SIZE*MODEL_INPUT_SIZE)
 	for y := 0; y < MODEL_INPUT_SIZE; y++ {
 		for x := 0; x < MODEL_INPUT_SIZE; x++ {
-			r, g, b, _ := resized.At(x, y).RGBA()
-			data[0*MODEL_INPUT_SIZE*MODEL_INPUT_SIZE+y*MODEL_INPUT_SIZE+x] = float32(r) / 65535.0
-			data[1*MODEL_INPUT_SIZE*MODEL_INPUT_SIZE+y*MODEL_INPUT_SIZE+x] = float32(g) / 65535.0
-			data[2*MODEL_INPUT_SIZE*MODEL_INPUT_SIZE+y*MODEL_INPUT_SIZE+x] = float32(b) / 65535.0
+			// RGBA layout: each pixel occupies 4 columns (R, G, B, A)
+			// GetUCharAt(row, col) treats col as byte offset within the row
+			base := x * 4
+			r := float32(resized.GetUCharAt(y, base)) / 255.0
+			g := float32(resized.GetUCharAt(y, base+1)) / 255.0
+			b := float32(resized.GetUCharAt(y, base+2)) / 255.0
+
+			idx := y*MODEL_INPUT_SIZE + x
+			data[0*MODEL_INPUT_SIZE*MODEL_INPUT_SIZE+idx] = (r - mean[0]) / std[0]
+			data[1*MODEL_INPUT_SIZE*MODEL_INPUT_SIZE+idx] = (g - mean[1]) / std[1]
+			data[2*MODEL_INPUT_SIZE*MODEL_INPUT_SIZE+idx] = (b - mean[2]) / std[2]
 		}
 	}
 	return data, nil
@@ -461,15 +535,28 @@ func remoteInference(inputData []float32) ([]float32, error) {
 	return output, nil
 }
 
-func computeLSH(features []float32) uint64 {
-	var hash uint64
+func computeLSH(features []float32) []uint64 {
+	// L2 normalize before LSH so that direction (angle) matters, not magnitude.
+	// This makes small visual changes more detectable in the SimHash bits.
+	var norm float32
+	for _, f := range features {
+		norm += f * f
+	}
+	norm = float32(math.Sqrt(float64(norm)))
+	if norm == 0 {
+		norm = 1
+	}
+
+	hash := make([]uint64, LSH_WORDS)
 	for i := 0; i < LSH_BITS; i++ {
 		var dot float32
 		for j := 0; j < len(features); j++ {
-			dot += features[j] * lshPlanes[i][j]
+			dot += (features[j] / norm) * lshPlanes[i][j]
 		}
 		if dot > 0 {
-			hash |= 1 << uint(i)
+			word := i / 64
+			bit := uint(i % 64)
+			hash[word] |= 1 << bit
 		}
 	}
 	return hash
