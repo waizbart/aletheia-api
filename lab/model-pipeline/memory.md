@@ -52,12 +52,12 @@ similaridades calculadas em cada camada.
 
 ### Caminhos de decisão
 
-- **Caminho rápido**: L1 ≥ 98% **E** L4 ≥ 95% → AUTÊNTICA
-- **Caminho completo**: L2 ≥ 90% **E** L3 ≥ 90% **E** L4 ≥ 90% → AUTÊNTICA
+- **Caminho rápido**: L1 ≥ 98% **E** L4 ≥ 97% → AUTÊNTICA
+- **Caminho completo**: L2 ≥ 97% **E** L3 ≥ 97% **E** L4 ≥ 97% → AUTÊNTICA
 - Caso contrário: ADULTERADA
 
 Se L1 falha (< 98%), L2 e L3 são computados (caminho completo).
-Se L1 passa mas L4 falha (< 95%), L2 e L3 são computados como fallback.
+Se L1 passa mas L4 falha (< 97%), L2 e L3 são computados como fallback.
 
 ---
 
@@ -112,7 +112,7 @@ Usado como triagem rápida. Se passa, pula as inferências ONNX (caras).
 - **Feature**: Token CLS → vetor de 384 float32
 - **Binarização**: threshold = média das 384 dimensões (da referência)
 - **Hash**: 384 bits (48 bytes)
-- **Threshold**: ≥ 90%
+- **Threshold**: ≥ 97%
 
 ### L3 — ConvNeXt V2-Base (estrutura local) — SEM GAP
 
@@ -126,7 +126,7 @@ Usado como triagem rápida. Se passa, pula as inferências ONNX (caras).
 - **Thresholds**: 1024 thresholds (um por canal), calculados como a média
   do canal sobre todas as 36 células da referência
 - **Hash**: 36 células × 1024 canais = **36.864 bits** (4.608 bytes)
-- **Threshold**: ≥ 90%
+- **Threshold**: ≥ 97%
 
 **Por que sem GAP?** O GAP colapsa o mapa espacial 34×34 em um único vetor
 1024-dim. Uma alteração localizada (ex: cabeça removida, ~80×80px) afeta
@@ -143,7 +143,7 @@ espacial.
 - **Total**: 16 × 6 × 32 = **3.072 floats**
 - **Binarização**: thresholds por canal (6 thresholds H,S,V,L,a,b)
 - **Hash**: 3.072 bits (384 bytes)
-- **Threshold**: ≥ 90% (caminho completo) ou ≥ 95% (caminho rápido)
+- **Threshold**: ≥ 97% (caminho completo) ou ≥ 97% (caminho rápido)
 
 **Conversões de cor** (via `github.com/lucasb-eyer/go-colorful`):
 
@@ -158,9 +158,9 @@ espacial.
 | ------------------- | ----- | ------------------------------------------- |
 | `ThresholdL1Fast`   | 0.98  | pHash mínimo para caminho rápido            |
 | `ThresholdL4Fast`   | 0.95  | L4 mínimo para caminho rápido               |
-| `ThresholdL2Full`   | 0.90  | DINOv2 mínimo para caminho completo         |
-| `ThresholdL3Full`   | 0.90  | ConvNeXt mínimo para caminho completo       |
-| `ThresholdL4Full`   | 0.90  | Cores mínimo para caminho completo          |
+| `ThresholdL2Full`   | 0.97  | DINOv2 mínimo para caminho completo         |
+| `ThresholdL3Full`   | 0.97  | ConvNeXt mínimo para caminho completo       |
+| `ThresholdL4Full`   | 0.97  | Cores mínimo para caminho completo          |
 | `DinoInputSize`     | 518   | Input DINOv2 (px), múltiplo de 14           |
 | `ConvNextInputSize` | 1088  | Input ConvNeXt (px), ≥1080p, múltiplo de 32 |
 | `ConvNextGridSize`  | 6     | Grade espacial do ConvNeXt                  |
@@ -177,14 +177,14 @@ Esperado vs obtido na versão atual do código:
 | ------------------------ | --------- | ------------- | ------------------------------------- |
 | aletheia.gif             | match     | ✅ AUTÊNTICA  | Mesmo conteúdo, extensão diferente    |
 | aletheia.png             | match     | ✅ AUTÊNTICA  | Mesmo conteúdo, extensão diferente    |
-| aletheia-changed-1.jpg   | missmatch | ❌ AUTÊNTICA  | Cabeça removida (~80×80px)            |
+| aletheia-changed-1.jpg   | missmatch | ✅ ADULTERADA | Cabeça removida detectada (L3=92%)    |
 | aletheia-changed-2.jpg   | match     | ✅ AUTÊNTICA  | Modificação sutil                     |
-| aletheia-changed-3.jpg   | missmatch | ❌ AUTÊNTICA  |                                       |
-| aletheia-changed-4.jpg   | missmatch | ❌ AUTÊNTICA  |                                       |
+| aletheia-changed-3.jpg   | missmatch | ✅ ADULTERADA |                                       |
+| aletheia-changed-4.jpg   | missmatch | ✅ ADULTERADA |                                       |
 | aletheia-changed-5.jpg   | missmatch | ✅ ADULTERADA |                                       |
 | aletheia-changed-6.jpg   | missmatch | ✅ ADULTERADA |                                       |
 | aletheia-changed-7.jpg   | missmatch | ✅ ADULTERADA |                                       |
-| aletheia-cropped-10p.jpg | match     | ✅ AUTÊNTICA  | Crop de 10% apenas                    |
+| aletheia-cropped-10p.jpg | match     | ❌ ADULTERADA | L3=84% com crop de 10%                |
 | aletheia-filter-1.jpg    | missmatch | ✅ ADULTERADA | Cores alteradas                       |
 | aletheia-filter-2.jpg    | missmatch | ✅ ADULTERADA |                                       |
 | aletheia-filter-3.jpg    | missmatch | ✅ ADULTERADA |                                       |
@@ -239,8 +239,15 @@ python export_models.py
 ### 2. Build e execução (Docker)
 
 ```bash
+# Com métricas (default via docker-compose)
 docker compose build
 docker compose run --rm pipeline
+
+# Os relatórios serão salvos em ./metrics-output/
+# A saída completa também aparece no terminal
+
+# Sem métricas (modo silencioso)
+PIPELINE_METRICS=0 docker compose run --rm pipeline
 ```
 
 ### 3. Execução local (Go, requer ONNX Runtime instalado)
@@ -252,13 +259,102 @@ CGO_ENABLED=1 go run main.go --verbose
 
 ### Flags disponíveis
 
-| Flag         | Padrão                      | Descrição                      |
-| ------------ | --------------------------- | ------------------------------ |
-| `--verbose`  | false                       | Saída detalhada                |
-| `--ref`      | testdata/aletheia.jpg       | Imagem de referência           |
-| `--testdir`  | testdata                    | Diretório com imagens de teste |
-| `--dino`     | models/dinov2_small.onnx    | Modelo ONNX DINOv2             |
-| `--convnext` | models/convnextv2_base.onnx | Modelo ONNX ConvNeXt           |
+| Flag         | Padrão                      | Descrição                                       |
+| ------------ | --------------------------- | ----------------------------------------------- |
+| `--verbose`  | false                       | Saída detalhada (inclui métricas de desempenho) |
+| `--metrics`  | false                       | Gera relatório de desempenho ao final           |
+| `--ref`      | testdata/aletheia.jpg       | Imagem de referência                            |
+| `--testdir`  | testdata                    | Diretório com imagens de teste                  |
+| `--dino`     | models/dinov2_small.onnx    | Modelo ONNX DINOv2                              |
+| `--convnext` | models/convnextv2_base.onnx | Modelo ONNX ConvNeXt                            |
+
+### Variáveis de ambiente
+
+| Variável               | Efeito                            |
+| ---------------------- | --------------------------------- |
+| `PIPELINE_VERBOSE=1`   | Equivalente a `--verbose`         |
+| `PIPELINE_METRICS=1`   | Equivalente a `--metrics`         |
+| `PIPELINE_METRICS_DIR` | Diretório de saída dos relatórios |
+|                        | (padrão: diretório atual)         |
+
+---
+
+## Observabilidade e Métricas
+
+O pipeline coleta métricas de desempenho para cada etapa (L1–L4) usando
+apenas a stdlib Go e `/proc` do Linux. **Nenhuma dependência externa**
+é necessária.
+
+### Métricas coletadas por etapa
+
+| Métrica        | Fonte                          | Descrição                              |
+| -------------- | ------------------------------ | -------------------------------------- |
+| ⏱ Duração      | `time.Now()` / `time.Since()`  | Tempo real decorrido na etapa          |
+| 🧠 Heap delta  | `runtime.ReadMemStats`         | Alocação de heap Go entre início e fim |
+| 💾 RSS         | `/proc/self/status` → `VmRSS:` | Memória residente real do processo     |
+| ⚙️ CPU usuário | `/proc/self/stat` → `utime`    | Tempo de CPU em modo usuário           |
+| ⚙️ CPU sistema | `/proc/self/stat` → `stime`    | Tempo de CPU em modo kernel            |
+
+> **Por que RSS via `/proc`?** O ONNX Runtime é uma biblioteca C carregada
+> via CGO. A memória alocada por ela **não aparece** no `runtime.ReadMemStats`.
+> O `/proc/self/status` captura a memória real do processo, incluindo as
+> bibliotecas nativas.
+
+### Modos de visualização
+
+**`--verbose`**: mostra métricas inline na saída de cada imagem:
+
+```
+L2 (DINOv2-S):     PASSOU  | similaridade: 97.82%  |  342.5ms  heap: +245.3MB  rss:  512.7MB  cpu: 0.483s
+```
+
+**`--metrics`**: gera relatório completo ao final:
+
+- `metrics-report.json` — JSON estruturado com dados por imagem + médias
+- `metrics-report.txt` — Tabela legível no terminal
+
+No Docker, os arquivos são salvos em `metrics-output/` (mapeado via volume).
+
+### Relatório texto (exemplo)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  RELATÓRIO DE DESEMPENHO                                                                        │
+├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  Total de imagens: 19                                                                           │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Médias por Estágio:
+  Estágio         │    Tempo (ms) │    Heap Go │        RSS │   CPU User │    CPU Sys
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+  L1 (pHash)      │        1.234 │     0.50MB │   120.0MB │     0.001s │     0.000s
+  L2 (DINOv2)     │      342.567 │   245.30MB │   512.7MB │     0.483s │     0.052s
+  L3 (ConvNeXt)   │      891.234 │   512.80MB │  1024.5MB │     1.234s │     0.234s
+  L4 (Cores)      │       12.345 │     8.20MB │   520.0MB │     0.015s │     0.002s
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+  Total (média)   │     1247.380 │   766.80MB │  1024.5MB │     1.733s │     0.288s
+
+Por Imagem:
+  Imagem                   │ Resultado │ Caminho  │   Tempo (ms) │    Heap Go │        RSS
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+  aletheia.gif             │ AUTÊNTICA │ rápido   │      1.234   │     0.50MB │   120.0MB
+    └─ L1 (pHash)          │      0.012 │     0.00MB │   120.0MB │     0.000s │     0.000s
+    └─ L4 (Cores)          │      1.222 │     0.50MB │   120.0MB │     0.001s │     0.000s
+  aletheia-changed-1.jpg   │ ADULTERADA│ completo │   1247.380  │   766.80MB │  1024.5MB
+    └─ L1 (pHash)          │      1.100 │     0.50MB │   120.0MB │     0.001s │     0.000s
+    └─ L2 (DINOv2)         │    342.567 │   245.30MB │   512.7MB │     0.483s │     0.052s
+    └─ L3 (ConvNeXt)       │    891.234 │   512.80MB │  1024.5MB │     1.234s │     0.234s
+    └─ L4 (Cores)          │     12.345 │     8.20MB │   520.0MB │     0.015s │     0.002s
+```
+
+### Estrutura do pacote
+
+```
+lab/model-pipeline/
+├── metrics/
+│   └── metrics.go         # Coleta de snapshots, /proc, geração de relatório
+└── main.go                 # Instrumentado com chamadas a metrics.Snapshot()
+```
 
 ---
 
@@ -314,8 +410,7 @@ CGO_ENABLED=1 go run main.go --verbose
 
 1. **Rotação**: imagens rotacionadas (90°, 180°, 270°) falham todas as camadas.
    A pipeline não implementa normalização de rotação.
-2. **changed-1**: falsa autêntica — DINOv2 não detecta a cabeça removida como
-   alteração relevante nas features globais. O ConvNeXt espacial deve melhorar
-   após re-export com o modelo sem GAP.
+2. **changed-1**: corrigido — o ConvNeXt espacial (sem GAP) com grade 6×6
+   detecta a remoção da cabeça (~80×80px) como adulteração.
 3. **q10**: falsa adulterada — compressão JPEG agressiva degrada as features do
-   ConvNeXt/DINOv2 abaixo do threshold de 90%.
+   ConvNeXt/DINOv2 abaixo do threshold de 97%.

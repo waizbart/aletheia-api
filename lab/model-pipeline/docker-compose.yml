@@ -1,8 +1,17 @@
 services:
+  export:
+    build:
+      dockerfile: Dockerfile.export
+    volumes:
+      - ./models:/app/models
+      - ./export_models.py:/app/export_models.py
+
   pipeline:
     build: .
     volumes:
       - ./testdata:/app/testdata:ro
       - ./models:/app/models:ro
+      - ./metrics-output:/app/metrics-output
     environment:
       - PIPELINE_VERBOSE=1
+      - PIPELINE_METRICS=1

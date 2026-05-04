@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y wget ca-certificates && \
     rm -rf onnxruntime-linux-x64-${ORT_VERSION}* /var/lib/apt/lists/*
 
 COPY go.mod main.go ./
+COPY metrics/ ./metrics/
 RUN go mod tidy 2>&1
 
 RUN CGO_ENABLED=1 \

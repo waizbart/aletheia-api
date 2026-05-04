@@ -10,11 +10,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/corona10/goimagehash"
 	"github.com/disintegration/imaging"
 	"github.com/lucasb-eyer/go-colorful"
 	ort "github.com/yalue/onnxruntime_go"
+
+	"github.com/waizbart/aletheia-api/lab/model-pipeline/metrics"
 )
 
 // ---------------------------------------------------------------------------
@@ -59,7 +62,8 @@ type LayerResult struct {
 	Similarity float64
 	Passed     bool
 	Skipped    bool
-	Hamming    int // apenas para L1 (pHash)
+	Hamming    int                    `json:"hamming"`
+	Metrics    metrics.StageMetrics   `json:"metrics"`
 }
 
 // ImageHashes contém todos os hashes de uma imagem.
@@ -82,9 +86,31 @@ type Result struct {
 	L2        LayerResult
 	L3        LayerResult
 	L4        LayerResult
-	PathType  string // "rápido" ou "completo"
+	PathType  string
 	Authentic bool
 	Error     string
+}
+
+// PerImageMetrics converte um Result em metrics.PerImageMetrics.
+func (r Result) PerImageMetrics() metrics.PerImageMetrics {
+	name := filepath.Base(r.ImagePath)
+	return metrics.PerImageMetrics{
+		ImageName: name,
+		Authentic: r.Authentic,
+		PathType:  r.PathType,
+		Stages: map[string]metrics.StageMetrics{
+			"L1 (pHash)":    r.L1.Metrics,
+			"L2 (DINOv2)":   r.L2.Metrics,
+			"L3 (ConvNeXt)": r.L3.Metrics,
+			"L4 (Cores)":    r.L4.Metrics,
+		},
+		Total: metrics.DiffTotal(map[string]metrics.StageMetrics{
+			"L1 (pHash)":    r.L1.Metrics,
+			"L2 (DINOv2)":   r.L2.Metrics,
+			"L3 (ConvNeXt)": r.L3.Metrics,
+			"L4 (Cores)":    r.L4.Metrics,
+		}),
+	}
 }
 
 // Pipeline contém as sessões ONNX e o hash de referência.
@@ -742,84 +768,120 @@ func (p *Pipeline) Close() {
 // ---------------------------------------------------------------------------
 
 // evaluatePHash calcula similaridade L1 (pHash).
-func evaluatePHash(ref *ImageHashes, img image.Image) LayerResult {
+func evaluatePHash(ref *ImageHashes, img image.Image) (LayerResult, metrics.StageMetrics) {
+	before := metrics.Snapshot()
+	start := time.Now()
+
 	candPHash, err := computePHash(img)
 	if err != nil {
-		return LayerResult{Similarity: 0, Passed: false}
+		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
 	}
 	sim, dist, err := phashSimilarity(ref.PHash, candPHash)
 	if err != nil {
-		return LayerResult{Similarity: 0, Passed: false}
+		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
 	}
 	passed := sim >= ThresholdL1Fast
+
+	dur := time.Since(start)
+	after := metrics.Snapshot()
+	sm := before.Diff(after, dur)
+
 	return LayerResult{
 		Similarity: sim,
 		Passed:     passed,
 		Hamming:    dist,
-	}
+		Metrics:    sm,
+	}, sm
 }
 
 // evaluateDino calcula similaridade L2 (DINOv2).
-func evaluateDino(ref *ImageHashes, img image.Image, p *Pipeline) LayerResult {
+func evaluateDino(ref *ImageHashes, img image.Image, p *Pipeline) (LayerResult, metrics.StageMetrics) {
+	before := metrics.Snapshot()
+	start := time.Now()
+
 	pre := preprocessDino(img)
 	copy(p.DinoInput.GetData(), pre)
 
 	dinoVec, err := extractDinoVector(p)
 	if err != nil {
-		return LayerResult{Similarity: 0, Passed: false, Skipped: false}
+		return LayerResult{Similarity: 0, Passed: false, Skipped: false}, metrics.StageMetrics{}
 	}
 
 	candHash := binarizeVector(dinoVec, ref.DinoThreshold)
 	dist := hammingBits(ref.DinoHash, candHash)
 	if dist < 0 {
-		return LayerResult{Similarity: 0, Passed: false}
+		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
 	}
 	sim := similarityFromHamming(dist, dinoHiddenDim)
 	passed := sim >= ThresholdL2Full
+
+	dur := time.Since(start)
+	after := metrics.Snapshot()
+	sm := before.Diff(after, dur)
+
 	return LayerResult{
 		Similarity: sim,
 		Passed:     passed,
-	}
+		Metrics:    sm,
+	}, sm
 }
 
 // evaluateConvNext calcula similaridade L3 (ConvNeXt).
-func evaluateConvNext(ref *ImageHashes, img image.Image, p *Pipeline) LayerResult {
+func evaluateConvNext(ref *ImageHashes, img image.Image, p *Pipeline) (LayerResult, metrics.StageMetrics) {
+	before := metrics.Snapshot()
+	start := time.Now()
+
 	pre := preprocessConvNext(img)
 	copy(p.ConvInput.GetData(), pre)
 
 	convMap, err := extractConvSpatial(p)
 	if err != nil {
-		return LayerResult{Similarity: 0, Passed: false}
+		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
 	}
 
 	gridFeat := spatialGridMean(convMap, ConvNextSpatial, ConvNextGridSize, ConvNextChannels)
 	candHash := binarizeSpatial(gridFeat, ref.ConvThresholds)
 	dist := hammingBits(ref.ConvHash, candHash)
 	if dist < 0 {
-		return LayerResult{Similarity: 0, Passed: false}
+		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
 	}
 	sim := similarityFromHamming(dist, convSpatialBits)
 	passed := sim >= ThresholdL3Full
+
+	dur := time.Since(start)
+	after := metrics.Snapshot()
+	sm := before.Diff(after, dur)
+
 	return LayerResult{
 		Similarity: sim,
 		Passed:     passed,
-	}
+		Metrics:    sm,
+	}, sm
 }
 
 // evaluateColor calcula similaridade L4 (hash de cores com thresholds por canal).
-func evaluateColor(ref *ImageHashes, img image.Image) LayerResult {
+func evaluateColor(ref *ImageHashes, img image.Image) (LayerResult, metrics.StageMetrics) {
+	before := metrics.Snapshot()
+	start := time.Now()
+
 	colorVec := computeColorHash(img)
 	candHash := binarizeColorVector(colorVec, ref.ColorThresholds)
 	dist := hammingBits(ref.ColorHash, candHash)
 	if dist < 0 {
-		return LayerResult{Similarity: 0, Passed: false}
+		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
 	}
 	sim := similarityFromHamming(dist, colorTotalBins)
 	passed := sim >= ThresholdL4Full
+
+	dur := time.Since(start)
+	after := metrics.Snapshot()
+	sm := before.Diff(after, dur)
+
 	return LayerResult{
 		Similarity: sim,
 		Passed:     passed,
-	}
+		Metrics:    sm,
+	}, sm
 }
 
 // evaluate executa a pipeline perceptual completa para uma imagem candidata.
@@ -833,14 +895,14 @@ func evaluate(candidatePath string, p *Pipeline) Result {
 	}
 
 	// L1 — pHash
-	res.L1 = evaluatePHash(p.Ref, img)
+	res.L1, _ = evaluatePHash(p.Ref, img)
 
 	// Decisão: caminho rápido ou completo
 	if res.L1.Passed {
 		// Caminho rápido: pula L2 e L3, vai direto para L4
 		res.L2 = LayerResult{Similarity: 0, Passed: false, Skipped: true}
 		res.L3 = LayerResult{Similarity: 0, Passed: false, Skipped: true}
-		res.L4 = evaluateColor(p.Ref, img)
+		res.L4, _ = evaluateColor(p.Ref, img)
 
 		if res.L4.Similarity >= ThresholdL4Fast {
 			res.PathType = "rápido"
@@ -848,8 +910,8 @@ func evaluate(candidatePath string, p *Pipeline) Result {
 		} else {
 			// L1 passou mas L4 falhou → cai no caminho completo
 			// (precisa computar L2 e L3)
-			res.L2 = evaluateDino(p.Ref, img, p)
-			res.L3 = evaluateConvNext(p.Ref, img, p)
+			res.L2, _ = evaluateDino(p.Ref, img, p)
+			res.L3, _ = evaluateConvNext(p.Ref, img, p)
 
 			if !res.L2.Skipped && !res.L3.Skipped &&
 				res.L2.Similarity >= ThresholdL2Full &&
@@ -864,9 +926,9 @@ func evaluate(candidatePath string, p *Pipeline) Result {
 		}
 	} else {
 		// Caminho completo
-		res.L2 = evaluateDino(p.Ref, img, p)
-		res.L3 = evaluateConvNext(p.Ref, img, p)
-		res.L4 = evaluateColor(p.Ref, img)
+		res.L2, _ = evaluateDino(p.Ref, img, p)
+		res.L3, _ = evaluateConvNext(p.Ref, img, p)
+		res.L4, _ = evaluateColor(p.Ref, img)
 
 		if !res.L2.Skipped && !res.L3.Skipped &&
 			res.L2.Similarity >= ThresholdL2Full &&
@@ -904,7 +966,8 @@ func pct(v float64) string {
 }
 
 // printResult imprime o resultado detalhado de uma imagem.
-func printResult(res Result) {
+// Se verbose for true, inclui métricas de desempenho.
+func printResult(res Result, verbose bool) {
 	fmt.Println("========================================")
 	fmt.Printf("Imagem: %s\n", res.ImagePath)
 	fmt.Println("========================================")
@@ -920,13 +983,22 @@ func printResult(res Result) {
 	l1Label := layerLabel(res.L1.Similarity, res.L1.Passed, res.L1.Skipped, res.L1.Hamming, true)
 	l1Str := fmt.Sprintf("L1 (pHash):        %s  | similaridade: %s | hamming: %d",
 		l1Label, pct(res.L1.Similarity), res.L1.Hamming)
-	fmt.Println(l1Str)
+	fmt.Print(l1Str)
+	if verbose {
+		fmt.Printf("  | %s", metricsLine(res.L1.Metrics))
+	}
+	fmt.Println()
 
 	// L2
 	if !res.L2.Skipped {
 		l2Label := layerLabel(res.L2.Similarity, res.L2.Passed, res.L2.Skipped, 0, false)
-		fmt.Printf("L2 (DINOv2-S):     %s  | similaridade: %s\n",
+		l2Str := fmt.Sprintf("L2 (DINOv2-S):     %s  | similaridade: %s",
 			l2Label, pct(res.L2.Similarity))
+		fmt.Print(l2Str)
+		if verbose {
+			fmt.Printf("  | %s", metricsLine(res.L2.Metrics))
+		}
+		fmt.Println()
 	} else {
 		fmt.Printf("L2 (DINOv2-S):     PULADO\n")
 	}
@@ -934,17 +1006,26 @@ func printResult(res Result) {
 	// L3
 	if !res.L3.Skipped {
 		l3Label := layerLabel(res.L3.Similarity, res.L3.Passed, res.L3.Skipped, 0, false)
-		fmt.Printf("L3 (ConvNeXt V2):  %s  | similaridade: %s\n",
+		l3Str := fmt.Sprintf("L3 (ConvNeXt V2):  %s  | similaridade: %s",
 			l3Label, pct(res.L3.Similarity))
+		fmt.Print(l3Str)
+		if verbose {
+			fmt.Printf("  | %s", metricsLine(res.L3.Metrics))
+		}
+		fmt.Println()
 	} else {
 		fmt.Printf("L3 (ConvNeXt V2):  PULADO\n")
 	}
 
 	// L4
 	l4Label := layerLabel(res.L4.Similarity, res.L4.Passed, res.L4.Skipped, 0, false)
-	fmt.Printf("L4 (Cores):        %s  | similaridade: %s\n",
+	l4Str := fmt.Sprintf("L4 (Cores):        %s  | similaridade: %s",
 		l4Label, pct(res.L4.Similarity))
-
+	fmt.Print(l4Str)
+	if verbose {
+		fmt.Printf("  | %s", metricsLine(res.L4.Metrics))
+	}
+	fmt.Println()
 	fmt.Println()
 
 	// Caminhos
@@ -974,6 +1055,12 @@ func printResult(res Result) {
 	fmt.Printf("→ RESULTADO: %s\n", resultLabel)
 	fmt.Println("========================================")
 	fmt.Println()
+}
+
+// metricsLine formata as métricas de uma etapa para exibição inline.
+func metricsLine(m metrics.StageMetrics) string {
+	return fmt.Sprintf("%8.1fms  heap:%+6.1fMB  rss:%7.1fMB  cpu:%.3fs",
+		m.DurationMS, m.DeltaHeapMB, m.RSSMB, m.UserCPUS+m.SysCPUS)
 }
 
 // printSummary imprime a tabela resumo ao final.
@@ -1030,7 +1117,8 @@ func printSummary(results []Result) {
 // ---------------------------------------------------------------------------
 
 func main() {
-	verbose := flag.Bool("verbose", false, "saída detalhada")
+	verbose := flag.Bool("verbose", false, "saída detalhada (inclui métricas de desempenho inline)")
+	metricsFlag := flag.Bool("metrics", false, "gera relatório de desempenho (JSON + texto) ao final")
 	refPath := flag.String("ref", "testdata/aletheia.jpg", "caminho da imagem de referência")
 	testDir := flag.String("testdir", "testdata", "diretório com imagens de teste")
 	dinoModel := flag.String("dino", "models/dinov2_small.onnx", "modelo ONNX DINOv2")
@@ -1040,6 +1128,9 @@ func main() {
 	// Se a variável de ambiente PIPELINE_VERBOSE estiver definida, sobrescreve o flag
 	if os.Getenv("PIPELINE_VERBOSE") == "1" {
 		*verbose = true
+	}
+	if os.Getenv("PIPELINE_METRICS") == "1" {
+		*metricsFlag = true
 	}
 
 	// Verificar arquivos obrigatórios
@@ -1052,7 +1143,7 @@ func main() {
 		}
 	}
 
-	if *verbose {
+	if *verbose || *metricsFlag {
 		fmt.Println("Inicializando pipeline perceptual...")
 		fmt.Printf("  Referência: %s\n", *refPath)
 		fmt.Printf("  DINOv2:     %s\n", *dinoModel)
@@ -1126,9 +1217,68 @@ func main() {
 		}
 		res := evaluate(imgPath, pipeline)
 		results = append(results, res)
-		printResult(res)
+		printResult(res, *verbose)
 	}
 
 	// Tabela resumo
 	printSummary(results)
+
+	// Relatório de desempenho (se solicitado)
+	if *metricsFlag {
+		if *verbose {
+			fmt.Println("Gerando relatório de desempenho...")
+		}
+		generateMetricsReport(results)
+	}
+}
+
+// generateMetricsReport gera os arquivos de relatório de desempenho.
+// O diretório de saída pode ser definido via PIPELINE_METRICS_DIR (padrão: diretório atual).
+func generateMetricsReport(results []Result) {
+	perImage := make([]metrics.PerImageMetrics, 0, len(results))
+	for _, res := range results {
+		perImage = append(perImage, res.PerImageMetrics())
+	}
+
+	report := metrics.NewReport(perImage)
+
+	outDir := os.Getenv("PIPELINE_METRICS_DIR")
+	if outDir == "" {
+		outDir = "."
+	}
+
+	// Garantir que o diretório existe
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "ERRO ao criar diretório %s: %v\n", outDir, err)
+		return
+	}
+
+	// Arquivo JSON
+	jsonPath := filepath.Join(outDir, "metrics-report.json")
+	jsonFile, err := os.Create(jsonPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERRO ao criar %s: %v\n", jsonPath, err)
+		return
+	}
+
+	if err := report.WriteJSON(jsonFile); err != nil {
+		fmt.Fprintf(os.Stderr, "ERRO ao escrever %s: %v\n", jsonPath, err)
+	}
+	jsonFile.Close()
+	fmt.Printf("Relatório JSON salvo: %s\n", jsonPath)
+
+	// Arquivo texto
+	textPath := filepath.Join(outDir, "metrics-report.txt")
+	textFile, err := os.Create(textPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERRO ao criar %s: %v\n", textPath, err)
+		return
+	}
+
+	report.WriteText(textFile)
+	textFile.Close()
+	fmt.Printf("Relatório texto salvo: %s\n", textPath)
+
+	// Também imprime o texto no terminal para conveniência
+	report.WriteText(os.Stdout)
 }

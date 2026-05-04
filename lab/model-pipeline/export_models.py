@@ -1,20 +1,25 @@
 """
-Export DINOv2 ViT-S/14 and ConvNeXt V2-Base to ONNX format.
+Export DINOv2 ViT-S/14, ConvNeXt V2-Base, and RotNet to ONNX format.
 
 Run once before building the Docker image:
 
-    pip install torch transformers timm onnx
+    pip install torch transformers timm onnx tensorflow tf2onnx
     python export_models.py
 
 Output:
     models/dinov2_small.onnx
     models/convnextv2_base.onnx
+    models/rotnet_street_view.onnx
 """
 
 import os
+import warnings
+
 import torch
 from transformers import AutoModel
 import timm
+
+warnings.filterwarnings("ignore")
 
 
 def _embed_external_data(model_path: str):
@@ -83,7 +88,69 @@ def export_convnext():
     print("ConvNeXt V2-Base (spatial, no GAP) exported -> models/convnextv2_base.onnx")
 
 
+def export_rotnet():
+    """
+    Export RotNet (ResNet50 + Dense 360) to ONNX.
+    Input: NHWC [1, 224, 224, 3], normalized via imagenet_utils.preprocess_input
+    Output: [1, 360] softmax probabilities over rotation angles 0..359
+    """
+    # Tentar importar tensorflow (pode ser tensorflow_cpu em alguns ambientes)
+    try:
+        import tensorflow as tf
+    except ImportError:
+        import tensorflow_cpu as tf
+    import tf2onnx
+
+    # Silenciar logs do TF
+    tf.get_logger().setLevel("ERROR")
+
+    model_paths = [
+        "models/rotnet_street_view_resnet50_keras2.hdf5",
+        "models/rotnet_street_view_resnet50.hdf5",
+    ]
+
+    model_path = None
+    for p in model_paths:
+        if os.path.exists(p):
+            model_path = p
+            break
+
+    if model_path is None:
+        print("ERRO: Nenhum modelo RotNet HDF5 encontrado em models/")
+        print("Baixe de: https://github.com/d4nst/RotNet (pre-trained models)")
+        return
+
+    print(f"Carregando RotNet de: {model_path}")
+
+    # Carregar modelo Keras
+    model = tf.keras.models.load_model(model_path, compile=False)
+    print(f"  Input : {model.inputs[0].shape}")
+    print(f"  Output: {model.outputs[0].shape}")
+
+    # Converter para ONNX
+    spec = [tf.TensorSpec((None, 224, 224, 3), tf.float32, name="input")]
+    output_path = "models/rotnet_street_view.onnx"
+
+    model_proto, _ = tf2onnx.convert.from_keras(
+        model,
+        input_signature=spec,
+        opset=17,
+        output_path=output_path,
+    )
+
+    print(f"RotNet exported -> {output_path}")
+
+    # Verificar nomes dos tensores de entrada e saída
+    import onnx
+    onnx_model = onnx.load(output_path)
+    for inp in onnx_model.graph.input:
+        print(f"  ONNX input : {inp.name} {inp.type.tensor_type.shape}")
+    for out in onnx_model.graph.output:
+        print(f"  ONNX output: {out.name} {out.type.tensor_type.shape}")
+
+
 if __name__ == "__main__":
     export_dinov2()
     export_convnext()
+    export_rotnet()
     print("All models exported successfully.")
