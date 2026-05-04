@@ -1,0 +1,8 @@
+services:
+  pipeline:
+    build: .
+    volumes:
+      - ./testdata:/app/testdata:ro
+      - ./models:/app/models:ro
+    environment:
+      - PIPELINE_VERBOSE=1
