@@ -50,12 +50,12 @@ type PerImageMetrics struct {
 
 // ReportSummary contém as médias e totais consolidados.
 type ReportSummary struct {
-	TotalImages   int                    `json:"total_images"`
-	AvgDurationMS float64                `json:"avg_duration_ms"`
-	AvgHeapMB     float64                `json:"avg_heap_mb"`
-	AvgRSSMB      float64                `json:"avg_rss_mb"`
-	AvgUserCPUS   float64                `json:"avg_user_cpu_s"`
-	AvgSysCPUS    float64                `json:"avg_sys_cpu_s"`
+	TotalImages   int                     `json:"total_images"`
+	AvgDurationMS float64                 `json:"avg_duration_ms"`
+	AvgHeapMB     float64                 `json:"avg_heap_mb"`
+	AvgRSSMB      float64                 `json:"avg_rss_mb"`
+	AvgUserCPUS   float64                 `json:"avg_user_cpu_s"`
+	AvgSysCPUS    float64                 `json:"avg_sys_cpu_s"`
 	StageAverages map[string]StageMetrics `json:"stage_averages,omitempty"`
 }
 
@@ -195,7 +195,7 @@ func NewReport(perImage []PerImageMetrics) Report {
 	var totalDur, totalHeap, totalRSS, totalUser, totalSys float64
 
 	type stageAgg struct {
-		count                                          int
+		count                                              int
 		totalDur, totalHeap, totalRSS, totalUser, totalSys float64
 	}
 	stageAggs := make(map[string]*stageAgg)
@@ -281,7 +281,7 @@ func (r Report) WriteText(w io.Writer) {
 	fmt.Fprintf(w, "  "+strings.Repeat("─", 85)+"\n")
 
 	// Ordem dos estágios
-	stageOrder := []string{"L1 (pHash)", "L2 (DINOv2)", "L3 (ConvNeXt)", "L4 (Cores)"}
+	stageOrder := []string{"L0 (RotNet)", "L1 (pHash)", "L2 (DINOv2)", "L4 (Cores)"}
 	for _, name := range stageOrder {
 		sm, ok := r.Summary.StageAverages[name]
 		if !ok {

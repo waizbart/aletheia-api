@@ -3,7 +3,6 @@ venv/
 __pycache__/
 *.pyc
 .DS_Store
-export_models.py
 requirements.txt
 metrics-output/
 memory.md

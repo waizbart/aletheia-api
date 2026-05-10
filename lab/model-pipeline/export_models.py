@@ -1,15 +1,16 @@
 """
-Export DINOv2 ViT-S/14, ConvNeXt V2-Base, and RotNet to ONNX format.
+Export DINOv2 ViT-S/14 (728px) and RotNet to ONNX format.
 
 Run once before building the Docker image:
 
-    pip install torch transformers timm onnx tensorflow tf2onnx
+    pip install torch transformers onnx tensorflow tf2onnx
     python export_models.py
+    python quantize_models.py   # opcional — INT8
 
 Output:
     models/dinov2_small.onnx
-    models/convnextv2_base.onnx
     models/rotnet_street_view.onnx
+    models/rotnet_io.json       # nomes de I/O para a pipeline Go
 """
 
 import os
@@ -17,7 +18,6 @@ import warnings
 
 import torch
 from transformers import AutoModel
-import timm
 
 warnings.filterwarnings("ignore")
 
@@ -43,49 +43,27 @@ def _embed_external_data(model_path: str):
 
 
 def export_dinov2():
-    """Export DINOv2 ViT-S/14 (518px resolution, 37x37 patches of 14px)."""
+    """Export DINOv2 ViT-S/14 (728px, 52x52 patches of 14px)."""
     dino = AutoModel.from_pretrained("facebook/dinov2-small")
     dino.eval()
-    dummy = torch.randn(1, 3, 518, 518)
-    torch.onnx.export(
-        dino,
-        dummy,
-        "models/dinov2_small.onnx",
+    dummy = torch.randn(1, 3, 728, 728)
+    common_kw = dict(
+        f="models/dinov2_small.onnx",
         input_names=["pixel_values"],
         output_names=["last_hidden_state"],
-        dynamic_axes={"pixel_values": {0: "batch"}},
-        opset_version=17,
-    )
-    _embed_external_data("models/dinov2_small.onnx")
-    print("DINOv2-S exported -> models/dinov2_small.onnx")
-
-
-def export_convnext():
-    """Export ConvNeXt V2-Base sem GAP — mapa espacial [1, 1024, H/32, W/32]."""
-    convnext = timm.create_model(
-        "convnextv2_base.fcmae_ft_in22k_in1k", pretrained=True
-    )
-    convnext.eval()
-
-    # Substituir forward para capturar o mapa espacial (antes do GAP)
-    # forward_features() = stem + stages + norm, sem pool
-    convnext.forward = convnext.forward_features
-
-    dummy = torch.randn(1, 3, 1088, 1088)
-    torch.onnx.export(
-        convnext,
-        dummy,
-        "models/convnextv2_base.onnx",
-        input_names=["input"],
-        output_names=["features"],
         dynamic_axes={
-            "input": {0: "batch", 2: "height", 3: "width"},
-            "features": {0: "batch", 2: "grid_h", 3: "grid_w"},
+            "pixel_values": {0: "batch"},
+            "last_hidden_state": {0: "batch"},
         },
         opset_version=17,
     )
-    _embed_external_data("models/convnextv2_base.onnx")
-    print("ConvNeXt V2-Base (spatial, no GAP) exported -> models/convnextv2_base.onnx")
+    # PyTorch recente: exportador Dynamo exige onnxscript; legado evita dependência extra.
+    try:
+        torch.onnx.export(dino, dummy, **common_kw, dynamo=False)
+    except TypeError:
+        torch.onnx.export(dino, dummy, **common_kw)
+    _embed_external_data("models/dinov2_small.onnx")
+    print("DINOv2-S (728px) exported -> models/dinov2_small.onnx")
 
 
 def export_rotnet():
@@ -141,16 +119,26 @@ def export_rotnet():
     print(f"RotNet exported -> {output_path}")
 
     # Verificar nomes dos tensores de entrada e saída
+    import json
+
     import onnx
+
     onnx_model = onnx.load(output_path)
+    in_name = onnx_model.graph.input[0].name
+    out_name = onnx_model.graph.output[0].name
     for inp in onnx_model.graph.input:
         print(f"  ONNX input : {inp.name} {inp.type.tensor_type.shape}")
     for out in onnx_model.graph.output:
         print(f"  ONNX output: {out.name} {out.type.tensor_type.shape}")
 
+    manifest = {"input": in_name, "output": out_name}
+    man_path = "models/rotnet_io.json"
+    with open(man_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"  manifest -> {man_path}")
+
 
 if __name__ == "__main__":
     export_dinov2()
-    export_convnext()
     export_rotnet()
     print("All models exported successfully.")

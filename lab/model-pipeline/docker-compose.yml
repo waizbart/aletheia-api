@@ -5,6 +5,9 @@ services:
     volumes:
       - ./models:/app/models
       - ./export_models.py:/app/export_models.py
+      - ./quantize_models.py:/app/quantize_models.py
+    # Export FP32 + quantização INT8 (saída em models/*.int8.onnx)
+    command: ["sh", "-c", "python export_models.py && python quantize_models.py"]
 
   pipeline:
     build: .
@@ -15,3 +18,5 @@ services:
     environment:
       - PIPELINE_VERBOSE=1
       - PIPELINE_METRICS=1
+      # ORT_EP=auto|cpu|cuda|rocm — paralelismo DINO: ex. command: ["./pipeline","-dino-tiles","2x2","-dino-workers","2"]
+      - ORT_EP=auto

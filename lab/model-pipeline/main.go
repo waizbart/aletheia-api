@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"image"
@@ -9,89 +10,73 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/corona10/goimagehash"
 	"github.com/disintegration/imaging"
-	"github.com/lucasb-eyer/go-colorful"
 	ort "github.com/yalue/onnxruntime_go"
 
 	"github.com/waizbart/aletheia-api/lab/model-pipeline/metrics"
 )
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const (
-	ThresholdL1Fast = 0.98
-	ThresholdL4Fast = 0.97
-	ThresholdL2Full = 0.97
-	ThresholdL3Full = 0.97
-	ThresholdL4Full = 0.97
-
-	DinoInputSize       = 518  // múltiplo de 14 (ViT patch size)
-	ConvNextInputSize   = 1088 // >=1080p, múltiplo de 32 (downsample total)
-
-	ColorGridSize = 4  // grade 4×4
-	ColorHistBins = 32 // bins por canal
-)
-
-// Dimensões derivadas dos modelos ONNX
-const (
-	dinoNumPatches = 37 * 37          // 1369  (518/14)^2
-	dinoNumTokens  = dinoNumPatches + 1 // 1370, +1 CLS
-	dinoHiddenDim  = 384
-
-	// ConvNeXt sem GAP — mapa espacial
-	ConvNextGridSize = 6     // grade espacial 6×6
-	ConvNextChannels = 1024  // canais do feature map
-	ConvNextSpatial  = ConvNextInputSize / 32 // 1088/32 = 34
-	convSpatialBits  = ConvNextGridSize * ConvNextGridSize * ConvNextChannels // 36864
-
-	colorTotalBins = ColorGridSize * ColorGridSize * 6 * ColorHistBins // 3072
-)
-
-// ---------------------------------------------------------------------------
 // Structs
 // ---------------------------------------------------------------------------
 
-// LayerResult armazena o resultado de uma camada da pipeline.
 type LayerResult struct {
 	Similarity float64
 	Passed     bool
 	Skipped    bool
-	Hamming    int                    `json:"hamming"`
-	Metrics    metrics.StageMetrics   `json:"metrics"`
+	Hamming    int `json:"hamming"`
+
+	SimGlobal     float64 `json:"sim_global,omitempty"`
+	SimLocalAgg   float64 `json:"sim_local_agg,omitempty"`
+	SimLocalMin   float64 `json:"sim_local_min,omitempty"`
+	WorstDinoCell int     `json:"worst_dino_cell,omitempty"`
+	WorstDinoTile int     `json:"worst_dino_tile,omitempty"`
+
+	Metrics metrics.StageMetrics `json:"metrics"`
 }
 
-// ImageHashes contém todos os hashes de uma imagem.
+// DinoTileHashes são os hashes DINO de um tile da grelha.
+type DinoTileHashes struct {
+	DinoCLSThreshold    float32
+	DinoGlobalHash      []byte
+	DinoLocalThresholds []float32
+	DinoLocalHash       []byte
+}
+
 type ImageHashes struct {
-	PHash    *goimagehash.ImageHash
-	DinoHash []byte // 384 bits
-	ConvHash []byte // grid² × 1024 = 36864 bits → 4608 bytes
-	ColorHash []byte // 3072 bits → 384 bytes
+	PHash *goimagehash.ImageHash
 
-	// Thresholds de binarização fixos da imagem original.
-	DinoThreshold    float32
-	ConvThresholds   []float32 // 1024 thresholds, um por canal do ConvNeXt
-	ColorThresholds  [6]float32
+	DinoTiles []DinoTileHashes
+
+	ColorThresholds [6]float32
+	ColorHash       []byte
 }
 
-// Result agrega o resultado completo para uma imagem candidata.
+type dinoShard struct {
+	batch int
+	sess  *ort.AdvancedSession
+	in    *ort.Tensor[float32]
+	out   *ort.Tensor[float32]
+}
+
 type Result struct {
-	ImagePath string
-	L1        LayerResult
-	L2        LayerResult
-	L3        LayerResult
-	L4        LayerResult
-	PathType  string
-	Authentic bool
-	Error     string
+	ImagePath     string
+	RotNetSkipped bool
+	RotNetDegrees int
+	L0            LayerResult
+	L1            LayerResult
+	L2            LayerResult
+	L4            LayerResult
+	PathType      string
+	Authentic     bool
+	Error         string
 }
 
-// PerImageMetrics converte um Result em metrics.PerImageMetrics.
 func (r Result) PerImageMetrics() metrics.PerImageMetrics {
 	name := filepath.Base(r.ImagePath)
 	return metrics.PerImageMetrics{
@@ -99,37 +84,40 @@ func (r Result) PerImageMetrics() metrics.PerImageMetrics {
 		Authentic: r.Authentic,
 		PathType:  r.PathType,
 		Stages: map[string]metrics.StageMetrics{
-			"L1 (pHash)":    r.L1.Metrics,
-			"L2 (DINOv2)":   r.L2.Metrics,
-			"L3 (ConvNeXt)": r.L3.Metrics,
-			"L4 (Cores)":    r.L4.Metrics,
+			"L0 (RotNet)": r.L0.Metrics,
+			"L1 (pHash)":  r.L1.Metrics,
+			"L2 (DINOv2)": r.L2.Metrics,
+			"L4 (Cores)":  r.L4.Metrics,
 		},
 		Total: metrics.DiffTotal(map[string]metrics.StageMetrics{
-			"L1 (pHash)":    r.L1.Metrics,
-			"L2 (DINOv2)":   r.L2.Metrics,
-			"L3 (ConvNeXt)": r.L3.Metrics,
-			"L4 (Cores)":    r.L4.Metrics,
+			"L0 (RotNet)": r.L0.Metrics,
+			"L1 (pHash)":  r.L1.Metrics,
+			"L2 (DINOv2)": r.L2.Metrics,
+			"L4 (Cores)":  r.L4.Metrics,
 		}),
 	}
 }
 
-// Pipeline contém as sessões ONNX e o hash de referência.
 type Pipeline struct {
-	DinoSession *ort.AdvancedSession
-	ConvSession *ort.AdvancedSession
-	DinoInput   *ort.Tensor[float32]
-	DinoOutput  *ort.Tensor[float32]
-	ConvInput   *ort.Tensor[float32]
-	ConvOutput  *ort.Tensor[float32]
-	Ref         *ImageHashes
+	sessionOptions *ort.SessionOptions
+
+	DinoShards   []dinoShard
+	DinoChunks   []DinoChunk
+	DinoTileRows int
+	DinoTileCols int
+	DinoWorkers  int
+
+	RotNetSession *ort.AdvancedSession
+	RotNetInput   *ort.Tensor[float32]
+	RotNetOutput  *ort.Tensor[float32]
+
+	Ref *ImageHashes
 }
 
 // ---------------------------------------------------------------------------
 // Utilitários
 // ---------------------------------------------------------------------------
 
-// hammingBits calcula a distância de Hamming entre dois slices de bytes.
-// Usa bits.OnesCount8 (popcount acelerado por CPU) da stdlib.
 func hammingBits(a, b []byte) int {
 	if len(a) != len(b) {
 		return -1
@@ -141,7 +129,6 @@ func hammingBits(a, b []byte) int {
 	return dist
 }
 
-// similarityFromHamming retorna 1 - (distância / totalBits).
 func similarityFromHamming(dist, totalBits int) float64 {
 	if totalBits == 0 {
 		return 0
@@ -149,7 +136,6 @@ func similarityFromHamming(dist, totalBits int) float64 {
 	return 1.0 - float64(dist)/float64(totalBits)
 }
 
-// loadImage carrega uma imagem de arquivo usando a biblioteca imaging.
 func loadImage(path string) (image.Image, error) {
 	img, err := imaging.Open(path)
 	if err != nil {
@@ -158,7 +144,6 @@ func loadImage(path string) (image.Image, error) {
 	return img, nil
 }
 
-// imageToRGBA converte image.Image para *image.NRGBA de forma consistente.
 func imageToRGBA(img image.Image) *image.NRGBA {
 	switch v := img.(type) {
 	case *image.NRGBA:
@@ -168,16 +153,104 @@ func imageToRGBA(img image.Image) *image.NRGBA {
 	}
 }
 
+func pickModelPath(fp32Path string, preferInt8 bool) string {
+	if !preferInt8 {
+		return fp32Path
+	}
+	if strings.HasSuffix(fp32Path, ".int8.onnx") {
+		return fp32Path
+	}
+	if !strings.HasSuffix(fp32Path, ".onnx") {
+		return fp32Path
+	}
+	int8p := strings.TrimSuffix(fp32Path, ".onnx") + ".int8.onnx"
+	if _, err := os.Stat(int8p); err == nil {
+		return int8p
+	}
+	return fp32Path
+}
+
+func loadRotNetIONames(manifestPath, overrideIn, overrideOut string) (string, string, error) {
+	inName, outName := "input", "fc360"
+	if overrideIn != "" {
+		inName = overrideIn
+	}
+	if overrideOut != "" {
+		outName = overrideOut
+	}
+	if overrideIn != "" && overrideOut != "" {
+		return inName, outName, nil
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return inName, outName, nil
+	}
+	var m struct {
+		Input  string `json:"input"`
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return "", "", err
+	}
+	if m.Input != "" && overrideIn == "" {
+		inName = m.Input
+	}
+	if m.Output != "" && overrideOut == "" {
+		outName = m.Output
+	}
+	return inName, outName, nil
+}
+
+// parseDinoTilesStr interpreta "RxC" (ex.: 2x2). Default 1x1.
+func parseDinoTilesStr(s string) (rows, cols int, err error) {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" || s == "1x1" {
+		return 1, 1, nil
+	}
+	parts := strings.Split(s, "x")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("-dino-tiles: use formato RxC, ex. 2x2")
+	}
+	r, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil || r < 1 {
+		return 0, 0, fmt.Errorf("-dino-tiles: rows inválido")
+	}
+	c, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil || c < 1 {
+		return 0, 0, fmt.Errorf("-dino-tiles: cols inválido")
+	}
+	if r*c > DinoMaxTiles {
+		return 0, 0, fmt.Errorf("-dino-tiles: RxC <= %d", DinoMaxTiles)
+	}
+	return r, c, nil
+}
+
+func openDinoShard(dinoPath string, batch int, opts *ort.SessionOptions) (dinoShard, error) {
+	if batch < 1 {
+		return dinoShard{}, fmt.Errorf("batch DINO < 1")
+	}
+	inShape := ort.NewShape(int64(batch), int64(3), int64(DinoInputSize), int64(DinoInputSize))
+	outShape := ort.NewShape(int64(batch), int64(dinoNumTokens), int64(dinoHiddenDim))
+	sess, in, out, err := openOnnxSessionAdvanced(
+		dinoPath,
+		[]string{"pixel_values"},
+		[]string{"last_hidden_state"},
+		inShape, outShape, opts,
+	)
+	if err != nil {
+		return dinoShard{}, err
+	}
+	return dinoShard{batch: batch, sess: sess, in: in, out: out}, nil
+}
+
 // ---------------------------------------------------------------------------
-// L1 — pHash (64 bits)
+// L1 — pHash
 // ---------------------------------------------------------------------------
 
-// computePHash calcula o perception hash de 64 bits de uma imagem.
 func computePHash(img image.Image) (*goimagehash.ImageHash, error) {
 	return goimagehash.PerceptionHash(img)
 }
 
-// phashSimilarity compara dois hashes de 64 bits e retorna similaridade [0,1].
 func phashSimilarity(ref, cand *goimagehash.ImageHash) (float64, int, error) {
 	dist, err := ref.Distance(cand)
 	if err != nil {
@@ -188,61 +261,13 @@ func phashSimilarity(ref, cand *goimagehash.ImageHash) (float64, int, error) {
 }
 
 // ---------------------------------------------------------------------------
-// L2 — DINOv2 ViT-S/14 via ONNX
+// DINO — binarização (CLS + local compartilhado com dino.go)
 // ---------------------------------------------------------------------------
 
-// preprocessDino prepara o tensor NCHW [1,3,518,518] para o DINOv2.
-func preprocessDino(img image.Image) []float32 {
-	resized := imaging.Resize(img, DinoInputSize, DinoInputSize, imaging.Lanczos)
-	tensor := make([]float32, 1*3*DinoInputSize*DinoInputSize)
-
-	mean := [3]float32{0.485, 0.456, 0.406}
-	std := [3]float32{0.229, 0.224, 0.225}
-
-	bounds := resized.Bounds()
-	idx := 0
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r, g, b, _ := resized.At(x, y).RGBA()
-			// RGBA() retorna valores 0-65535, converter para 0-1
-			fr := float32(r) / 65535.0
-			fg := float32(g) / 65535.0
-			fb := float32(b) / 65535.0
-
-			// NCHW: canal R
-			tensor[idx] = (fr - mean[0]) / std[0]
-			// canal G
-			tensor[idx+1*DinoInputSize*DinoInputSize] = (fg - mean[1]) / std[1]
-			// canal B
-			tensor[idx+2*DinoInputSize*DinoInputSize] = (fb - mean[2]) / std[2]
-			idx++
-		}
-	}
-	return tensor
-}
-
-// extractDinoVector roda inferência e extrai o token CLS (primeiro token).
-// Retorna um slice de 384 float32.
-func extractDinoVector(p *Pipeline) ([]float32, error) {
-	if err := p.DinoSession.Run(); err != nil {
-		return nil, fmt.Errorf("falha na inferência DINOv2: %w", err)
-	}
-
-	// Output shape: [1, 1370, 384]
-	// Token CLS está no índice 0: [batch=0][token=0][:]
-	data := p.DinoOutput.GetData()
-	cls := make([]float32, dinoHiddenDim)
-	copy(cls, data[:dinoHiddenDim])
-	return cls, nil
-}
-
-// binarizeVector binariza um vetor float32 com base no threshold.
-// bit[i] = 1 se v[i] >= threshold, senão 0.
 func binarizeVector(vec []float32, threshold float32) []byte {
 	numBits := len(vec)
 	numBytes := (numBits + 7) / 8
 	result := make([]byte, numBytes)
-
 	for i, v := range vec {
 		if v >= threshold {
 			byteIdx := i / 8
@@ -253,7 +278,6 @@ func binarizeVector(vec []float32, threshold float32) []byte {
 	return result
 }
 
-// computeThreshold calcula o threshold de binarização como a média do vetor.
 func computeThreshold(vec []float32) float32 {
 	if len(vec) == 0 {
 		return 0
@@ -265,96 +289,6 @@ func computeThreshold(vec []float32) float32 {
 	return float32(sum / float64(len(vec)))
 }
 
-// ---------------------------------------------------------------------------
-// L3 — ConvNeXt V2-Base via ONNX
-// ---------------------------------------------------------------------------
-
-// preprocessConvNext prepara o tensor NCHW [1,3,H,W] para o ConvNeXt
-// com resolução fixa de 1088×1088 (features locais em alta resolução).
-func preprocessConvNext(img image.Image) []float32 {
-	resized := imaging.Resize(img, ConvNextInputSize, ConvNextInputSize, imaging.Lanczos)
-	tensor := make([]float32, 1*3*ConvNextInputSize*ConvNextInputSize)
-
-	mean := [3]float32{0.485, 0.456, 0.406}
-	std := [3]float32{0.229, 0.224, 0.225}
-
-	rb := resized.Bounds()
-	idx := 0
-	for y := rb.Min.Y; y < rb.Max.Y; y++ {
-		for x := rb.Min.X; x < rb.Max.X; x++ {
-			r, g, b, _ := resized.At(x, y).RGBA()
-			fr := float32(r) / 65535.0
-			fg := float32(g) / 65535.0
-			fb := float32(b) / 65535.0
-
-			tensor[idx] = (fr - mean[0]) / std[0]
-			tensor[idx+1*ConvNextInputSize*ConvNextInputSize] = (fg - mean[1]) / std[1]
-			tensor[idx+2*ConvNextInputSize*ConvNextInputSize] = (fb - mean[2]) / std[2]
-			idx++
-		}
-	}
-	return tensor
-}
-
-// extractConvSpatial roda inferencia e retorna o mapa espacial [C, H, W].
-func extractConvSpatial(p *Pipeline) ([]float32, error) {
-	if err := p.ConvSession.Run(); err != nil {
-		return nil, fmt.Errorf("falha na inferencia ConvNeXt: %w", err)
-	}
-	total := ConvNextChannels * ConvNextSpatial * ConvNextSpatial
-	data := p.ConvOutput.GetData()
-	feat := make([]float32, total)
-	copy(feat, data[:total])
-	return feat, nil
-}
-
-// spatialGridMean extrai features por celula da grade 6x6.
-func spatialGridMean(featureMap []float32, spatialSize, gridSize, channels int) []float32 {
-	result := make([]float32, 0, gridSize*gridSize*channels)
-	for gy := 0; gy < gridSize; gy++ {
-		y0 := gy * spatialSize / gridSize
-		y1 := (gy + 1) * spatialSize / gridSize
-		for gx := 0; gx < gridSize; gx++ {
-			x0 := gx * spatialSize / gridSize
-			x1 := (gx + 1) * spatialSize / gridSize
-			for c := 0; c < channels; c++ {
-				var sum float32
-				count := 0
-				for y := y0; y < y1; y++ {
-					for x := x0; x < x1; x++ {
-						idx := c*spatialSize*spatialSize + y*spatialSize + x
-						sum += featureMap[idx]
-						count++
-					}
-				}
-				if count > 0 {
-					result = append(result, sum/float32(count))
-				} else {
-					result = append(result, 0)
-				}
-			}
-		}
-	}
-	return result
-}
-
-// computeConvThresholds calcula thresholds por canal da grade.
-func computeConvThresholds(gridFeatures []float32) []float32 {
-	channels := ConvNextChannels
-	gridCells := ConvNextGridSize * ConvNextGridSize
-	thresholds := make([]float32, channels)
-	for c := 0; c < channels; c++ {
-		var sum float64
-		for g := 0; g < gridCells; g++ {
-			idx := g*channels + c
-			sum += float64(gridFeatures[idx])
-		}
-		thresholds[c] = float32(sum / float64(gridCells))
-	}
-	return thresholds
-}
-
-// binarizeSpatial binariza grid features com thresholds por canal.
 func binarizeSpatial(features, thresholds []float32) []byte {
 	numBits := len(features)
 	numBytes := (numBits + 7) / 8
@@ -372,227 +306,35 @@ func binarizeSpatial(features, thresholds []float32) []byte {
 }
 
 // ---------------------------------------------------------------------------
-// L4 — Hash de cores (via go-colorful)
+// RotNet L0
 // ---------------------------------------------------------------------------
 
-// computeColorHash calcula o hash de cores completo:
-// grade 4×4, cada região → 6 histogramas (H,S,V,L,a,b) de 32 bins.
-// Retorna slice float32 de 3072 valores (antes da binarização).
-func computeColorHash(img image.Image) []float32 {
-	nrgba := imageToRGBA(img)
-	bounds := nrgba.Bounds()
-	w := bounds.Dx()
-	h := bounds.Dy()
-
-	// Redimensionar para múltiplo de 4 mais próximo
-	targetW := (w / 4) * 4
-	targetH := (h / 4) * 4
-	if targetW == 0 {
-		targetW = 4
+func applyCanonicalRotation(img image.Image, p *Pipeline) (image.Image, int, error) {
+	if p.RotNetSession == nil {
+		return img, 0, nil
 	}
-	if targetH == 0 {
-		targetH = 4
+	small := imaging.Resize(img, RotNetInputSize, RotNetInputSize, imaging.Linear)
+	nrgba := imageToRGBA(small)
+	fillRotNetInputNHWC(nrgba, p.RotNetInput.GetData())
+	if err := p.RotNetSession.Run(); err != nil {
+		return nil, 0, fmt.Errorf("RotNet: %w", err)
 	}
-
-	resized := imaging.Resize(nrgba, targetW, targetH, imaging.Lanczos)
-	rb := resized.Bounds()
-	rw := rb.Dx()
-	rh := rb.Dy()
-
-	cellW := rw / ColorGridSize
-	cellH := rh / ColorGridSize
-
-	// 16 regiões × 6 canais × 32 bins = 3072
-	allFeatures := make([]float32, 0, colorTotalBins)
-
-	for gy := 0; gy < ColorGridSize; gy++ {
-		for gx := 0; gx < ColorGridSize; gx++ {
-			x0 := rb.Min.X + gx*cellW
-			y0 := rb.Min.Y + gy*cellH
-			x1 := x0 + cellW
-			y1 := y0 + cellH
-
-			// Histogramas para H, S, V, L, a, b — cada um com ColorHistBins bins
-			hHist := make([]float64, ColorHistBins)
-			sHist := make([]float64, ColorHistBins)
-			vHist := make([]float64, ColorHistBins)
-			lHist := make([]float64, ColorHistBins)
-			aHist := make([]float64, ColorHistBins)
-			bHist := make([]float64, ColorHistBins)
-
-			var totalPixels float64
-
-			for y := y0; y < y1; y++ {
-				for x := x0; x < x1; x++ {
-					// Obter pixel RGBA (0-65535) e converter para uint8
-					pr, pg, pb, _ := resized.At(x, y).RGBA()
-					rgba := color.RGBA{
-						R: uint8(pr >> 8),
-						G: uint8(pg >> 8),
-						B: uint8(pb >> 8),
-						A: 255,
-					}
-					c, _ := colorful.MakeColor(rgba)
-
-					// HSV via go-colorful (h: 0-360, s/v: 0-1)
-					hVal, sVal, vVal := c.Hsv()
-					// CIE Lab D65 via go-colorful (L: 0-100, a/b: ~-128 a 127)
-					lVal, aVal, bVal := c.Lab()
-
-					// H: 0-360 → bin 0-31
-					hBin := int(hVal / 360.0 * float64(ColorHistBins))
-					if hBin >= ColorHistBins {
-						hBin = ColorHistBins - 1
-					}
-					hHist[hBin]++
-
-					// S: 0-1 → bin 0-31
-					sBin := int(sVal * float64(ColorHistBins))
-					if sBin >= ColorHistBins {
-						sBin = ColorHistBins - 1
-					}
-					sHist[sBin]++
-
-					// V: 0-1 → bin 0-31
-					vBin := int(vVal * float64(ColorHistBins))
-					if vBin >= ColorHistBins {
-						vBin = ColorHistBins - 1
-					}
-					vHist[vBin]++
-
-					// L: 0-100 → bin 0-31
-					lBin := int(lVal / 100.0 * float64(ColorHistBins))
-					if lBin >= ColorHistBins {
-						lBin = ColorHistBins - 1
-					}
-					if lBin < 0 {
-						lBin = 0
-					}
-					lHist[lBin]++
-
-					// a: ~-128 a 127 → deslocar para 0-255
-					aNorm := (aVal + 128.0) / 255.0
-					aBin := int(aNorm * float64(ColorHistBins))
-					if aBin >= ColorHistBins {
-						aBin = ColorHistBins - 1
-					}
-					if aBin < 0 {
-						aBin = 0
-					}
-					aHist[aBin]++
-
-					// b: ~-128 a 127 → deslocar para 0-255
-					bNorm := (bVal + 128.0) / 255.0
-					bBin := int(bNorm * float64(ColorHistBins))
-					if bBin >= ColorHistBins {
-						bBin = ColorHistBins - 1
-					}
-					if bBin < 0 {
-						bBin = 0
-					}
-					bHist[bBin]++
-
-					totalPixels++
-				}
-			}
-
-			// Normalizar histogramas
-			if totalPixels > 0 {
-				normalizeHist(hHist, totalPixels)
-				normalizeHist(sHist, totalPixels)
-				normalizeHist(vHist, totalPixels)
-				normalizeHist(lHist, totalPixels)
-				normalizeHist(aHist, totalPixels)
-				normalizeHist(bHist, totalPixels)
-			}
-
-			// Concatenar: 6 canais × 32 bins = 192 floats por região
-			for _, val := range hHist {
-				allFeatures = append(allFeatures, float32(val))
-			}
-			for _, val := range sHist {
-				allFeatures = append(allFeatures, float32(val))
-			}
-			for _, val := range vHist {
-				allFeatures = append(allFeatures, float32(val))
-			}
-			for _, val := range lHist {
-				allFeatures = append(allFeatures, float32(val))
-			}
-			for _, val := range aHist {
-				allFeatures = append(allFeatures, float32(val))
-			}
-			for _, val := range bHist {
-				allFeatures = append(allFeatures, float32(val))
-			}
-		}
+	logits := p.RotNetOutput.GetData()
+	if len(logits) < 360 {
+		return nil, 0, fmt.Errorf("saída RotNet inesperada: len=%d", len(logits))
 	}
-
-	return allFeatures
-}
-
-// normalizeHist normaliza um histograma dividindo cada bin pelo total.
-func normalizeHist(hist []float64, total float64) {
-	if total == 0 {
-		return
-	}
-	for i := range hist {
-		hist[i] /= total
-	}
-}
-
-// computeColorThresholds computa thresholds por canal (H,S,V,L,a,b)
-// a partir do vetor de features flat (3072 valores).
-// Cada canal tem 16 regiões × 32 bins = 512 valores.
-func computeColorThresholds(features []float32) [6]float32 {
-	var thresholds [6]float32
-	for ch := 0; ch < 6; ch++ {
-		var sum float64
-		for region := 0; region < ColorGridSize*ColorGridSize; region++ {
-			baseIdx := region*192 + ch*ColorHistBins
-			for bin := 0; bin < ColorHistBins; bin++ {
-				sum += float64(features[baseIdx+bin])
-			}
-		}
-		thresholds[ch] = float32(sum / 512.0)
-	}
-	return thresholds
-}
-
-// binarizeColorVector binariza o vetor de features de cor usando
-// thresholds específicos por canal (H,S,V,L,a,b).
-func binarizeColorVector(features []float32, thresholds [6]float32) []byte {
-	numBits := len(features)
-	numBytes := (numBits + 7) / 8
-	result := make([]byte, numBytes)
-
-	for region := 0; region < ColorGridSize*ColorGridSize; region++ {
-		for ch := 0; ch < 6; ch++ {
-			baseIdx := region*192 + ch*ColorHistBins
-			for bin := 0; bin < ColorHistBins; bin++ {
-				i := baseIdx + bin
-				if features[i] >= thresholds[ch] {
-					byteIdx := i / 8
-					bitIdx := uint(i % 8)
-					result[byteIdx] |= 1 << bitIdx
-				}
-			}
-		}
-	}
-	return result
+	angle := argmax360(logits)
+	out := imaging.Rotate(img, -float64(angle), color.NRGBA{A: 0xff})
+	return out, angle, nil
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline — inicialização
+// ONNX
 // ---------------------------------------------------------------------------
 
-// initOnnxRuntime inicializa o runtime ONNX.
 func initOnnxRuntime() error {
-	// A onnxruntime_go procura por "onnxruntime.so", mas o arquivo real
-	// se chama "libonnxruntime.so". Setamos explicitamente o caminho.
 	libPath := os.Getenv("ONNX_RUNTIME_LIB")
 	if libPath == "" {
-		// Tentar caminhos comuns
 		for _, candidate := range []string{
 			"/usr/local/lib/libonnxruntime.so",
 			"/usr/lib/libonnxruntime.so",
@@ -610,80 +352,70 @@ func initOnnxRuntime() error {
 	return ort.InitializeEnvironment()
 }
 
-// openOnnxSessionAdvanced abre uma sessão ONNX com shapes fixos.
 func openOnnxSessionAdvanced(
 	modelPath string,
 	inputNames, outputNames []string,
 	inputShape, outputShape ort.Shape,
+	opts *ort.SessionOptions,
 ) (*ort.AdvancedSession, *ort.Tensor[float32], *ort.Tensor[float32], error) {
-
 	inputData := make([]float32, inputShape.FlattenedSize())
-
 	inputTensor, err := ort.NewTensor(inputShape, inputData)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("falha ao criar input tensor: %w", err)
+		return nil, nil, nil, fmt.Errorf("tensor entrada: %w", err)
 	}
-
 	outputTensor, err := ort.NewEmptyTensor[float32](outputShape)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("falha ao criar output tensor: %w", err)
+		inputTensor.Destroy()
+		return nil, nil, nil, fmt.Errorf("tensor saída: %w", err)
 	}
-
 	session, err := ort.NewAdvancedSession(
 		modelPath,
 		inputNames,
 		outputNames,
 		[]ort.Value{inputTensor},
 		[]ort.Value{outputTensor},
-		nil,
+		opts,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("falha ao criar sessão ONNX: %w", err)
+		inputTensor.Destroy()
+		outputTensor.Destroy()
+		return nil, nil, nil, fmt.Errorf("sessão ONNX: %w", err)
 	}
-
 	return session, inputTensor, outputTensor, nil
 }
 
-// closeOnnxSession libera os recursos de uma sessão avançada.
 func closeOnnxSession(session *ort.AdvancedSession) {
 	if session != nil {
 		session.Destroy()
 	}
 }
 
-// computeReferenceHashes processa a imagem de referência e calcula todos os hashes.
 func computeReferenceHashes(refImg image.Image, p *Pipeline) (*ImageHashes, error) {
 	ref := &ImageHashes{}
 
-	// L1 — pHash
 	phash, err := computePHash(refImg)
 	if err != nil {
-		return nil, fmt.Errorf("falha ao calcular pHash de referência: %w", err)
+		return nil, fmt.Errorf("pHash referência: %w", err)
 	}
 	ref.PHash = phash
 
-	// L2 — DINOv2
-	dinoPre := preprocessDino(refImg)
-	copy(p.DinoInput.GetData(), dinoPre)
-	dinoVec, err := extractDinoVector(p)
+	tiles, err := ExtractDinoTiles(refImg, p.DinoTileRows, p.DinoTileCols)
 	if err != nil {
-		return nil, fmt.Errorf("falha ao extrair vetor DINOv2 de referência: %w", err)
+		return nil, fmt.Errorf("tiles DINO referência: %w", err)
 	}
-	ref.DinoThreshold = computeThreshold(dinoVec)
-	ref.DinoHash = binarizeVector(dinoVec, ref.DinoThreshold)
-
-	// L3 — ConvNeXt
-	convPre := preprocessConvNext(refImg)
-	copy(p.ConvInput.GetData(), convPre)
-	convMap, err := extractConvSpatial(p)
+	clses, grids, err := runDinoInferenceForTiles(p, tiles)
 	if err != nil {
-		return nil, fmt.Errorf("falha ao extrair mapa ConvNeXt de referencia: %w", err)
+		return nil, fmt.Errorf("DINO referência: %w", err)
 	}
-	gridFeat := spatialGridMean(convMap, ConvNextSpatial, ConvNextGridSize, ConvNextChannels)
-	ref.ConvThresholds = computeConvThresholds(gridFeat)
-	ref.ConvHash = binarizeSpatial(gridFeat, ref.ConvThresholds)
+	ref.DinoTiles = make([]DinoTileHashes, len(clses))
+	for b := range clses {
+		th := computeThreshold(clses[b])
+		ref.DinoTiles[b].DinoCLSThreshold = th
+		ref.DinoTiles[b].DinoGlobalHash = binarizeVector(clses[b], th)
+		ref.DinoTiles[b].DinoLocalThresholds = computeChannelThresholdsFromGrid(grids[b], dinoLocalCells, dinoHiddenDim)
+		ref.DinoTiles[b].DinoLocalHash = binarizeSpatial(grids[b], ref.DinoTiles[b].DinoLocalThresholds)
+	}
 
-	// L4 — Cores (thresholds por canal)
 	colorVec := computeColorHash(refImg)
 	ref.ColorThresholds = computeColorThresholds(colorVec)
 	ref.ColorHash = binarizeColorVector(colorVec, ref.ColorThresholds)
@@ -691,87 +423,179 @@ func computeReferenceHashes(refImg image.Image, p *Pipeline) (*ImageHashes, erro
 	return ref, nil
 }
 
-// NewPipeline inicializa a pipeline: ONNX Runtime, sessões e referência.
-func NewPipeline(dinoModel, convModel, refPath string) (*Pipeline, error) {
+// NewPipeline carrega um ou mais shards DINO (batch ou workers paralelos), RotNet opcional.
+func NewPipeline(
+	dinoModel, rotnetModel, refPath, rotManifestPath, rotInOverride, rotOutOverride string,
+	preferInt8, skipRotNet bool,
+	dinoTileRows, dinoTileCols, dinoWorkers int,
+) (*Pipeline, error) {
 	if err := initOnnxRuntime(); err != nil {
 		return nil, err
 	}
 
-	// Abrir sessão DINOv2
-	dinoShape := ort.NewShape(1, 3, DinoInputSize, DinoInputSize)
-	dinoOutShape := ort.NewShape(1, dinoNumTokens, dinoHiddenDim)
-	dinoSess, dinoIn, dinoOut, err := openOnnxSessionAdvanced(
-		dinoModel,
-		[]string{"pixel_values"},
-		[]string{"last_hidden_state"},
-		dinoShape, dinoOutShape,
+	opts, err := buildSessionOptions()
+	if err != nil {
+		return nil, err
+	}
+
+	dinoPath := pickModelPath(dinoModel, preferInt8)
+	B := dinoTileRows * dinoTileCols
+	if B < 1 || B > DinoMaxTiles {
+		opts.Destroy()
+		return nil, fmt.Errorf("DINO tiles: rows*cols entre 1 e %d", DinoMaxTiles)
+	}
+
+	effW := dinoWorkers
+	if effW <= 1 {
+		effW = 1
+	} else {
+		if effW > B {
+			effW = B
+		}
+		if effW > DinoMaxWorkers {
+			effW = DinoMaxWorkers
+		}
+	}
+
+	chunks := DistributeDinoChunks(B, effW)
+	var shards []dinoShard
+	for _, ch := range chunks {
+		sh, err := openDinoShard(dinoPath, ch.Count, opts)
+		if err != nil {
+			for _, s := range shards {
+				closeOnnxSession(s.sess)
+				if s.in != nil {
+					s.in.Destroy()
+				}
+				if s.out != nil {
+					s.out.Destroy()
+				}
+			}
+			opts.Destroy()
+			return nil, fmt.Errorf("DINOv2 shard batch=%d: %w", ch.Count, err)
+		}
+		shards = append(shards, sh)
+	}
+
+	rotInName, rotOutName, err := loadRotNetIONames(rotManifestPath, rotInOverride, rotOutOverride)
+	if err != nil {
+		for _, s := range shards {
+			closeOnnxSession(s.sess)
+			if s.in != nil {
+				s.in.Destroy()
+			}
+			if s.out != nil {
+				s.out.Destroy()
+			}
+		}
+		opts.Destroy()
+		return nil, err
+	}
+
+	pl := &Pipeline{
+		sessionOptions: opts,
+		DinoShards:     shards,
+		DinoChunks:     chunks,
+		DinoTileRows:   dinoTileRows,
+		DinoTileCols:   dinoTileCols,
+		DinoWorkers:    effW,
+	}
+
+	if skipRotNet {
+		refImg, err := loadImage(refPath)
+		if err != nil {
+			pl.Close()
+			return nil, fmt.Errorf("referência: %w", err)
+		}
+		ref, err := computeReferenceHashes(refImg, pl)
+		if err != nil {
+			pl.Close()
+			return nil, fmt.Errorf("hashes referência: %w", err)
+		}
+		pl.Ref = ref
+		return pl, nil
+	}
+
+	rotPath := pickModelPath(rotnetModel, preferInt8)
+	rotShape := ort.NewShape(1, RotNetInputSize, RotNetInputSize, 3)
+	rotOutShape := ort.NewShape(1, 360)
+	rotSess, rotIn, rotOut, err := openOnnxSessionAdvanced(
+		rotPath,
+		[]string{rotInName},
+		[]string{rotOutName},
+		rotShape, rotOutShape, opts,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("DINOv2: %w", err)
+		pl.Close()
+		return nil, fmt.Errorf("RotNet: %w", err)
 	}
 
-	// Abrir sessão ConvNeXt
-	convShape := ort.NewShape(1, 3, ConvNextInputSize, ConvNextInputSize)
-	convOutShape := ort.NewShape(1, ConvNextChannels, ConvNextSpatial, ConvNextSpatial)
-	convSess, convIn, convOut, err := openOnnxSessionAdvanced(
-		convModel,
-		[]string{"input"},
-		[]string{"features"},
-		convShape, convOutShape,
-	)
-	if err != nil {
-		closeOnnxSession(dinoSess)
-		return nil, fmt.Errorf("ConvNeXt: %w", err)
-	}
+	pl.RotNetSession = rotSess
+	pl.RotNetInput = rotIn
+	pl.RotNetOutput = rotOut
 
-	p := &Pipeline{
-		DinoSession: dinoSess,
-		ConvSession: convSess,
-		DinoInput:   dinoIn,
-		DinoOutput:  dinoOut,
-		ConvInput:   convIn,
-		ConvOutput:  convOut,
-	}
-
-	// Carregar referência
 	refImg, err := loadImage(refPath)
 	if err != nil {
-		closeOnnxSession(dinoSess)
-		closeOnnxSession(convSess)
+		pl.Close()
 		return nil, fmt.Errorf("referência: %w", err)
 	}
-
-	ref, err := computeReferenceHashes(refImg, p)
+	refCanon, _, err := applyCanonicalRotation(refImg, pl)
 	if err != nil {
-		closeOnnxSession(dinoSess)
-		closeOnnxSession(convSess)
-		return nil, fmt.Errorf("hashes de referência: %w", err)
+		pl.Close()
+		return nil, fmt.Errorf("L0 referência: %w", err)
 	}
-	p.Ref = ref
 
-	return p, nil
+	ref, err := computeReferenceHashes(refCanon, pl)
+	if err != nil {
+		pl.Close()
+		return nil, fmt.Errorf("hashes referência: %w", err)
+	}
+	pl.Ref = ref
+	return pl, nil
 }
 
-// Close libera os recursos da pipeline.
 func (p *Pipeline) Close() {
-	if p.DinoSession != nil {
-		p.DinoSession.Destroy()
+	for i := range p.DinoShards {
+		s := &p.DinoShards[i]
+		closeOnnxSession(s.sess)
+		s.sess = nil
+		if s.in != nil {
+			s.in.Destroy()
+			s.in = nil
+		}
+		if s.out != nil {
+			s.out.Destroy()
+			s.out = nil
+		}
 	}
-	if p.ConvSession != nil {
-		p.ConvSession.Destroy()
+	p.DinoShards = nil
+	p.DinoChunks = nil
+	if p.RotNetSession != nil {
+		p.RotNetSession.Destroy()
+		p.RotNetSession = nil
+	}
+	if p.RotNetInput != nil {
+		p.RotNetInput.Destroy()
+		p.RotNetInput = nil
+	}
+	if p.RotNetOutput != nil {
+		p.RotNetOutput.Destroy()
+		p.RotNetOutput = nil
+	}
+	if p.sessionOptions != nil {
+		p.sessionOptions.Destroy()
+		p.sessionOptions = nil
 	}
 	ort.DestroyEnvironment()
 }
 
 // ---------------------------------------------------------------------------
-// Avaliação individual
+// Avaliação
 // ---------------------------------------------------------------------------
 
-// evaluatePHash calcula similaridade L1 (pHash).
 func evaluatePHash(ref *ImageHashes, img image.Image) (LayerResult, metrics.StageMetrics) {
 	before := metrics.Snapshot()
 	start := time.Now()
-
 	candPHash, err := computePHash(img)
 	if err != nil {
 		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
@@ -781,11 +605,8 @@ func evaluatePHash(ref *ImageHashes, img image.Image) (LayerResult, metrics.Stag
 		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
 	}
 	passed := sim >= ThresholdL1Fast
-
 	dur := time.Since(start)
-	after := metrics.Snapshot()
-	sm := before.Diff(after, dur)
-
+	sm := before.Diff(metrics.Snapshot(), dur)
 	return LayerResult{
 		Similarity: sim,
 		Passed:     passed,
@@ -794,76 +615,9 @@ func evaluatePHash(ref *ImageHashes, img image.Image) (LayerResult, metrics.Stag
 	}, sm
 }
 
-// evaluateDino calcula similaridade L2 (DINOv2).
-func evaluateDino(ref *ImageHashes, img image.Image, p *Pipeline) (LayerResult, metrics.StageMetrics) {
-	before := metrics.Snapshot()
-	start := time.Now()
-
-	pre := preprocessDino(img)
-	copy(p.DinoInput.GetData(), pre)
-
-	dinoVec, err := extractDinoVector(p)
-	if err != nil {
-		return LayerResult{Similarity: 0, Passed: false, Skipped: false}, metrics.StageMetrics{}
-	}
-
-	candHash := binarizeVector(dinoVec, ref.DinoThreshold)
-	dist := hammingBits(ref.DinoHash, candHash)
-	if dist < 0 {
-		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
-	}
-	sim := similarityFromHamming(dist, dinoHiddenDim)
-	passed := sim >= ThresholdL2Full
-
-	dur := time.Since(start)
-	after := metrics.Snapshot()
-	sm := before.Diff(after, dur)
-
-	return LayerResult{
-		Similarity: sim,
-		Passed:     passed,
-		Metrics:    sm,
-	}, sm
-}
-
-// evaluateConvNext calcula similaridade L3 (ConvNeXt).
-func evaluateConvNext(ref *ImageHashes, img image.Image, p *Pipeline) (LayerResult, metrics.StageMetrics) {
-	before := metrics.Snapshot()
-	start := time.Now()
-
-	pre := preprocessConvNext(img)
-	copy(p.ConvInput.GetData(), pre)
-
-	convMap, err := extractConvSpatial(p)
-	if err != nil {
-		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
-	}
-
-	gridFeat := spatialGridMean(convMap, ConvNextSpatial, ConvNextGridSize, ConvNextChannels)
-	candHash := binarizeSpatial(gridFeat, ref.ConvThresholds)
-	dist := hammingBits(ref.ConvHash, candHash)
-	if dist < 0 {
-		return LayerResult{Similarity: 0, Passed: false}, metrics.StageMetrics{}
-	}
-	sim := similarityFromHamming(dist, convSpatialBits)
-	passed := sim >= ThresholdL3Full
-
-	dur := time.Since(start)
-	after := metrics.Snapshot()
-	sm := before.Diff(after, dur)
-
-	return LayerResult{
-		Similarity: sim,
-		Passed:     passed,
-		Metrics:    sm,
-	}, sm
-}
-
-// evaluateColor calcula similaridade L4 (hash de cores com thresholds por canal).
 func evaluateColor(ref *ImageHashes, img image.Image) (LayerResult, metrics.StageMetrics) {
 	before := metrics.Snapshot()
 	start := time.Now()
-
 	colorVec := computeColorHash(img)
 	candHash := binarizeColorVector(colorVec, ref.ColorThresholds)
 	dist := hammingBits(ref.ColorHash, candHash)
@@ -872,11 +626,8 @@ func evaluateColor(ref *ImageHashes, img image.Image) (LayerResult, metrics.Stag
 	}
 	sim := similarityFromHamming(dist, colorTotalBins)
 	passed := sim >= ThresholdL4Full
-
 	dur := time.Since(start)
-	after := metrics.Snapshot()
-	sm := before.Diff(after, dur)
-
+	sm := before.Diff(metrics.Snapshot(), dur)
 	return LayerResult{
 		Similarity: sim,
 		Passed:     passed,
@@ -884,72 +635,76 @@ func evaluateColor(ref *ImageHashes, img image.Image) (LayerResult, metrics.Stag
 	}, sm
 }
 
-// evaluate executa a pipeline perceptual completa para uma imagem candidata.
 func evaluate(candidatePath string, p *Pipeline) Result {
 	res := Result{ImagePath: candidatePath}
-
 	img, err := loadImage(candidatePath)
 	if err != nil {
 		res.Error = err.Error()
 		return res
 	}
 
-	// L1 — pHash
+	b0 := metrics.Snapshot()
+	t0 := time.Now()
+	if p.RotNetSession == nil {
+		res.RotNetSkipped = true
+		res.L0 = LayerResult{
+			Similarity: 1,
+			Passed:     true,
+			Skipped:    true,
+			Metrics:    b0.Diff(metrics.Snapshot(), time.Since(t0)),
+		}
+	} else {
+		var angle int
+		img, angle, err = applyCanonicalRotation(img, p)
+		if err != nil {
+			res.Error = err.Error()
+			return res
+		}
+		res.RotNetDegrees = angle
+		res.L0 = LayerResult{
+			Similarity: 1,
+			Passed:     true,
+			Hamming:    angle,
+			Metrics:    b0.Diff(metrics.Snapshot(), time.Since(t0)),
+		}
+	}
 	res.L1, _ = evaluatePHash(p.Ref, img)
 
-	// Decisão: caminho rápido ou completo
 	if res.L1.Passed {
-		// Caminho rápido: pula L2 e L3, vai direto para L4
-		res.L2 = LayerResult{Similarity: 0, Passed: false, Skipped: true}
-		res.L3 = LayerResult{Similarity: 0, Passed: false, Skipped: true}
+		res.L2 = LayerResult{Skipped: true}
 		res.L4, _ = evaluateColor(p.Ref, img)
-
 		if res.L4.Similarity >= ThresholdL4Fast {
 			res.PathType = "rápido"
 			res.Authentic = true
-		} else {
-			// L1 passou mas L4 falhou → cai no caminho completo
-			// (precisa computar L2 e L3)
-			res.L2, _ = evaluateDino(p.Ref, img, p)
-			res.L3, _ = evaluateConvNext(p.Ref, img, p)
-
-			if !res.L2.Skipped && !res.L3.Skipped &&
-				res.L2.Similarity >= ThresholdL2Full &&
-				res.L3.Similarity >= ThresholdL3Full &&
-				res.L4.Similarity >= ThresholdL4Full {
-				res.PathType = "completo"
-				res.Authentic = true
-			} else {
-				res.PathType = "completo"
-				res.Authentic = false
-			}
+			return res
 		}
-	} else {
-		// Caminho completo
-		res.L2, _ = evaluateDino(p.Ref, img, p)
-		res.L3, _ = evaluateConvNext(p.Ref, img, p)
-		res.L4, _ = evaluateColor(p.Ref, img)
-
-		if !res.L2.Skipped && !res.L3.Skipped &&
-			res.L2.Similarity >= ThresholdL2Full &&
-			res.L3.Similarity >= ThresholdL3Full &&
-			res.L4.Similarity >= ThresholdL4Full {
+		res.L2, _ = evaluateDinoTriple(p.Ref, img, p)
+		if res.L2.Passed && res.L4.Similarity >= ThresholdL4Full {
 			res.PathType = "completo"
 			res.Authentic = true
 		} else {
 			res.PathType = "completo"
 			res.Authentic = false
 		}
+		return res
 	}
 
+	res.L2, _ = evaluateDinoTriple(p.Ref, img, p)
+	res.L4, _ = evaluateColor(p.Ref, img)
+	if res.L2.Passed && res.L4.Similarity >= ThresholdL4Full {
+		res.PathType = "completo"
+		res.Authentic = true
+	} else {
+		res.PathType = "completo"
+		res.Authentic = false
+	}
 	return res
 }
 
 // ---------------------------------------------------------------------------
-// Formatação de saída
+// Saída
 // ---------------------------------------------------------------------------
 
-// layerLabel retorna o rótulo textual de uma camada.
 func layerLabel(sim float64, passed, skipped bool, hamming int, showHamming bool) string {
 	if skipped {
 		return "PULADO"
@@ -960,18 +715,14 @@ func layerLabel(sim float64, passed, skipped bool, hamming int, showHamming bool
 	return "FALHOU"
 }
 
-// pct formata um float64 como percentual com 2 casas decimais.
 func pct(v float64) string {
 	return fmt.Sprintf("%6.2f%%", v*100)
 }
 
-// printResult imprime o resultado detalhado de uma imagem.
-// Se verbose for true, inclui métricas de desempenho.
 func printResult(res Result, verbose bool) {
 	fmt.Println("========================================")
 	fmt.Printf("Imagem: %s\n", res.ImagePath)
 	fmt.Println("========================================")
-
 	if res.Error != "" {
 		fmt.Printf("ERRO: %s\n", res.Error)
 		fmt.Println("========================================")
@@ -979,73 +730,55 @@ func printResult(res Result, verbose bool) {
 		return
 	}
 
-	// L1
+	if res.RotNetSkipped {
+		fmt.Println("L0 (RotNet):      DESLIGADO (--skip-rotnet)")
+	} else {
+		fmt.Printf("L0 (RotNet):       angulo estimado %d (canonizacao aplicada)\n", res.RotNetDegrees)
+	}
+	if verbose {
+		fmt.Printf("                   %s\n", metricsLine(res.L0.Metrics))
+	}
+
 	l1Label := layerLabel(res.L1.Similarity, res.L1.Passed, res.L1.Skipped, res.L1.Hamming, true)
-	l1Str := fmt.Sprintf("L1 (pHash):        %s  | similaridade: %s | hamming: %d",
+	fmt.Printf("L1 (pHash):        %s  | similaridade: %s | hamming: %d",
 		l1Label, pct(res.L1.Similarity), res.L1.Hamming)
-	fmt.Print(l1Str)
 	if verbose {
 		fmt.Printf("  | %s", metricsLine(res.L1.Metrics))
 	}
 	fmt.Println()
 
-	// L2
 	if !res.L2.Skipped {
 		l2Label := layerLabel(res.L2.Similarity, res.L2.Passed, res.L2.Skipped, 0, false)
-		l2Str := fmt.Sprintf("L2 (DINOv2-S):     %s  | similaridade: %s",
-			l2Label, pct(res.L2.Similarity))
-		fmt.Print(l2Str)
+		fmt.Printf("L2 (DINOv2 728):   %s  | min(global,agg,min)=%s\n", l2Label, pct(res.L2.Similarity))
+		fmt.Printf("                   global=%s  local_agg=%s  local_min=%s (pior tile %d célula %d)\n",
+			pct(res.L2.SimGlobal), pct(res.L2.SimLocalAgg), pct(res.L2.SimLocalMin), res.L2.WorstDinoTile, res.L2.WorstDinoCell)
 		if verbose {
-			fmt.Printf("  | %s", metricsLine(res.L2.Metrics))
+			fmt.Printf("                   %s\n", metricsLine(res.L2.Metrics))
 		}
-		fmt.Println()
 	} else {
-		fmt.Printf("L2 (DINOv2-S):     PULADO\n")
+		fmt.Println("L2 (DINOv2):       PULADO (caminho rápido)")
 	}
 
-	// L3
-	if !res.L3.Skipped {
-		l3Label := layerLabel(res.L3.Similarity, res.L3.Passed, res.L3.Skipped, 0, false)
-		l3Str := fmt.Sprintf("L3 (ConvNeXt V2):  %s  | similaridade: %s",
-			l3Label, pct(res.L3.Similarity))
-		fmt.Print(l3Str)
-		if verbose {
-			fmt.Printf("  | %s", metricsLine(res.L3.Metrics))
-		}
-		fmt.Println()
-	} else {
-		fmt.Printf("L3 (ConvNeXt V2):  PULADO\n")
-	}
-
-	// L4
 	l4Label := layerLabel(res.L4.Similarity, res.L4.Passed, res.L4.Skipped, 0, false)
-	l4Str := fmt.Sprintf("L4 (Cores):        %s  | similaridade: %s",
-		l4Label, pct(res.L4.Similarity))
-	fmt.Print(l4Str)
+	fmt.Printf("L4 (Cores):        %s  | similaridade: %s", l4Label, pct(res.L4.Similarity))
 	if verbose {
 		fmt.Printf("  | %s", metricsLine(res.L4.Metrics))
 	}
 	fmt.Println()
 	fmt.Println()
 
-	// Caminhos
-	fastOk := res.L1.Passed && res.L4.Similarity >= ThresholdL4Fast
-	fullOk := !res.L2.Skipped && !res.L3.Skipped &&
-		res.L2.Similarity >= ThresholdL2Full &&
-		res.L3.Similarity >= ThresholdL3Full &&
-		res.L4.Similarity >= ThresholdL4Full
+	fastOk := res.L1.Passed && res.L4.Similarity >= ThresholdL4Fast && res.L2.Skipped && res.Authentic
+	fullOk := !res.L2.Skipped && res.L2.Passed && res.L4.Similarity >= ThresholdL4Full
 
-	fastStr := "FALHOU"
+	fastStr, fullStr := "FALHOU", "FALHOU"
 	if fastOk {
 		fastStr = "PASSOU"
 	}
-	fullStr := "FALHOU"
 	if fullOk {
 		fullStr = "PASSOU"
 	}
-
 	fmt.Printf("Caminho rápido   (L1 + L4):      %s\n", fastStr)
-	fmt.Printf("Caminho completo (L2 + L3 + L4): %s\n", fullStr)
+	fmt.Printf("Caminho completo (L2 + L4):     %s\n", fullStr)
 	fmt.Println()
 
 	resultLabel := "ADULTERADA"
@@ -1057,75 +790,57 @@ func printResult(res Result, verbose bool) {
 	fmt.Println()
 }
 
-// metricsLine formata as métricas de uma etapa para exibição inline.
 func metricsLine(m metrics.StageMetrics) string {
 	return fmt.Sprintf("%8.1fms  heap:%+6.1fMB  rss:%7.1fMB  cpu:%.3fs",
 		m.DurationMS, m.DeltaHeapMB, m.RSSMB, m.UserCPUS+m.SysCPUS)
 }
 
-// printSummary imprime a tabela resumo ao final.
 func printSummary(results []Result) {
 	fmt.Println("RESUMO")
-	fmt.Printf("%-22s | %-8s | %-8s | %-8s | %-8s | %-9s | %s\n",
-		"imagem", "L1", "L2", "L3", "L4", "caminho", "resultado")
+	fmt.Printf("%-22s | %-6s | %-8s | %-8s | %-8s | %-9s | %s\n",
+		"imagem", "rot°", "L1", "L2(min)", "L4", "caminho", "resultado")
 	fmt.Println(strings.Repeat("-", 100))
-
 	for _, res := range results {
 		imgName := filepath.Base(res.ImagePath)
-
-		var l1Str, l2Str, l3Str, l4Str, pathStr, resultStr string
-
 		if res.Error != "" {
-			l1Str = "  ERRO  "
-			l2Str = ""
-			l3Str = ""
-			l4Str = ""
-			pathStr = ""
-			resultStr = "ERRO"
-		} else {
-			if res.L1.Skipped {
-				l1Str = " PULADO "
-			} else {
-				l1Str = pct(res.L1.Similarity)
-			}
-			if res.L2.Skipped {
-				l2Str = " PULADO "
-			} else {
-				l2Str = pct(res.L2.Similarity)
-			}
-			if res.L3.Skipped {
-				l3Str = " PULADO "
-			} else {
-				l3Str = pct(res.L3.Similarity)
-			}
-			l4Str = pct(res.L4.Similarity)
-			pathStr = res.PathType
-			if res.Authentic {
-				resultStr = "AUTÊNTICA"
-			} else {
-				resultStr = "ADULTERADA"
-			}
+			fmt.Printf("%-22s | ERRO\n", imgName)
+			continue
 		}
-
-		fmt.Printf("%-22s | %-8s | %-8s | %-8s | %-8s | %-9s | %s\n",
-			imgName, l1Str, l2Str, l3Str, l4Str, pathStr, resultStr)
+		l1 := pct(res.L1.Similarity)
+		var l2s string
+		if res.L2.Skipped {
+			l2s = " PULADO "
+		} else {
+			l2s = pct(res.L2.Similarity)
+		}
+		var rotStr string
+		if res.RotNetSkipped {
+			rotStr = "  skip"
+		} else {
+			rotStr = fmt.Sprintf("%6d", res.RotNetDegrees)
+		}
+		fmt.Printf("%-22s | %6s | %-8s | %-8s | %-8s | %-9s | %s\n",
+			imgName, rotStr, l1, l2s, pct(res.L4.Similarity), res.PathType,
+			map[bool]string{true: "AUTÊNTICA", false: "ADULTERADA"}[res.Authentic])
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
-
 func main() {
-	verbose := flag.Bool("verbose", false, "saída detalhada (inclui métricas de desempenho inline)")
-	metricsFlag := flag.Bool("metrics", false, "gera relatório de desempenho (JSON + texto) ao final")
-	refPath := flag.String("ref", "testdata/aletheia.jpg", "caminho da imagem de referência")
-	testDir := flag.String("testdir", "testdata", "diretório com imagens de teste")
-	dinoModel := flag.String("dino", "models/dinov2_small.onnx", "modelo ONNX DINOv2")
-	convModel := flag.String("convnext", "models/convnextv2_base.onnx", "modelo ONNX ConvNeXt")
+	verbose := flag.Bool("verbose", false, "saída detalhada")
+	metricsFlag := flag.Bool("metrics", false, "relatório JSON/texto de desempenho")
+	refPath := flag.String("ref", "testdata/aletheia.jpg", "imagem de referência")
+	testDir := flag.String("testdir", "testdata", "diretório de imagens candidatas")
+	dinoModel := flag.String("dino", "models/dinov2_small.onnx", "ONNX DINOv2 (FP32 ou base para .int8)")
+	rotnetModel := flag.String("rotnet", "models/rotnet_street_view.onnx", "ONNX RotNet")
+	rotManifest := flag.String("rotnet-io", "models/rotnet_io.json", "JSON com nomes input/output do RotNet")
+	rotIn := flag.String("rotnet-input", "", "força nome do input RotNet (opcional)")
+	rotOut := flag.String("rotnet-output", "", "força nome do output RotNet (opcional)")
+	preferInt8 := flag.Bool("int8", true, "usa versão .int8.onnx quando existir ao lado do .onnx")
+	skipRotNet := flag.Bool("skip-rotnet", false, "desativa L0 RotNet (somente dev; requer export ONNX para produção)")
+	dinoTiles := flag.String("dino-tiles", "1x1", "grelha DINO RxC ex. 2x2 (máx. 16 tiles)")
+	dinoWorkers := flag.Int("dino-workers", 0, "sessões ONNX DINO paralelas (0=auto: 1 worker; >1 reparte tiles)")
 	flag.Parse()
 
-	// Se a variável de ambiente PIPELINE_VERBOSE estiver definida, sobrescreve o flag
 	if os.Getenv("PIPELINE_VERBOSE") == "1" {
 		*verbose = true
 	}
@@ -1133,85 +848,84 @@ func main() {
 		*metricsFlag = true
 	}
 
-	// Verificar arquivos obrigatórios
-	requiredFiles := []string{*refPath, *dinoModel, *convModel}
-	for _, f := range requiredFiles {
+	tRows, tCols, err := parseDinoTilesStr(*dinoTiles)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERRO: %v\n", err)
+		os.Exit(1)
+	}
+	dw := *dinoWorkers
+	if dw < 0 {
+		fmt.Fprintf(os.Stderr, "ERRO: -dino-workers >= 0\n")
+		os.Exit(1)
+	}
+
+	required := []string{*refPath, pickModelPath(*dinoModel, *preferInt8)}
+	if !*skipRotNet {
+		required = append(required, pickModelPath(*rotnetModel, *preferInt8))
+	}
+	for _, f := range required {
 		if _, err := os.Stat(f); os.IsNotExist(err) {
 			fmt.Fprintf(os.Stderr, "ERRO: arquivo necessário não encontrado: %s\n", f)
-			fmt.Fprintf(os.Stderr, "Certifique-se de que os modelos ONNX foram exportados com export_models.py\n")
+			fmt.Fprintf(os.Stderr, "Exporte modelos com: python export_models.py\n")
 			os.Exit(1)
 		}
 	}
 
 	if *verbose || *metricsFlag {
-		fmt.Println("Inicializando pipeline perceptual...")
+		fmt.Println("Inicializando pipeline perceptual (DINOv2 728 + RotNet L0)...")
+		fmt.Printf("  ORT_EP=%s (auto|cpu|cuda|rocm)\n", strings.TrimSpace(os.Getenv("ORT_EP")))
 		fmt.Printf("  Referência: %s\n", *refPath)
-		fmt.Printf("  DINOv2:     %s\n", *dinoModel)
-		fmt.Printf("  ConvNeXt:   %s\n", *convModel)
+		fmt.Printf("  DINOv2:     %s\n", pickModelPath(*dinoModel, *preferInt8))
+		fmt.Printf("  DINO tiles: %dx%d (%d) | -dino-workers pedido: %d (0→1 sessão)\n", tRows, tCols, tRows*tCols, dw)
+		if *skipRotNet {
+			fmt.Println("  RotNet:     PULADO (--skip-rotnet)")
+		} else {
+			fmt.Printf("  RotNet:     %s\n", pickModelPath(*rotnetModel, *preferInt8))
+		}
 	}
 
-	// Inicializar pipeline
-	pipeline, err := NewPipeline(*dinoModel, *convModel, *refPath)
+	pipeline, err := NewPipeline(*dinoModel, *rotnetModel, *refPath, *rotManifest, *rotIn, *rotOut, *preferInt8, *skipRotNet, tRows, tCols, dw)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERRO fatal ao inicializar pipeline: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ERRO fatal: %v\n", err)
 		os.Exit(1)
 	}
 	defer pipeline.Close()
 
 	if *verbose {
-		fmt.Printf("Thresholds de binarização:\n")
-		fmt.Printf("  DINOv2:   %.6f\n", pipeline.Ref.DinoThreshold)
-		ct3 := pipeline.Ref.ConvThresholds
-		if len(ct3) > 0 {
-			fmt.Printf("  ConvNeXt: %.6f (media de %d canais)\n", ct3[0], len(ct3))
-		}
-		ct := pipeline.Ref.ColorThresholds
-		fmt.Printf("  Cores (H,S,V,L,a,b): %.6f, %.6f, %.6f, %.6f, %.6f, %.6f\n",
-			ct[0], ct[1], ct[2], ct[3], ct[4], ct[5])
-		fmt.Printf("  ConvNeXt input: %dx%d\n", ConvNextInputSize, ConvNextInputSize)
+		fmt.Printf("  DINO ONNX: %d shard(s), %d worker(s) efetivo(s)\n", len(pipeline.DinoShards), pipeline.DinoWorkers)
+	}
+	if *verbose && pipeline.Ref != nil && len(pipeline.Ref.DinoTiles) > 0 {
+		fmt.Printf("  DINO: %d tile(s), CLS média tile0=%.6f\n", len(pipeline.Ref.DinoTiles), pipeline.Ref.DinoTiles[0].DinoCLSThreshold)
 		fmt.Println()
 	}
 
-	// Listar imagens de teste
 	entries, err := os.ReadDir(*testDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERRO ao ler diretório de teste %s: %v\n", *testDir, err)
+		fmt.Fprintf(os.Stderr, "ERRO ao ler testdir: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Extensões de imagem suportadas
-	extensions := map[string]bool{
-		".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".tiff": true,
-	}
-
-	var testImages []string
-	for _, entry := range entries {
-		if entry.IsDir() {
+	extOK := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".tiff": true}
+	var paths []string
+	for _, e := range entries {
+		if e.IsDir() {
 			continue
 		}
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if !extensions[ext] {
+		ext := strings.ToLower(filepath.Ext(e.Name()))
+		if !extOK[ext] {
 			continue
 		}
-		// Ignorar a imagem de referência (já foi processada)
-		fullPath := filepath.Join(*testDir, entry.Name())
+		full := filepath.Join(*testDir, e.Name())
 		absRef, _ := filepath.Abs(*refPath)
-		absCand, _ := filepath.Abs(fullPath)
+		absCand, _ := filepath.Abs(full)
 		if absCand == absRef {
 			continue
 		}
-		testImages = append(testImages, fullPath)
+		paths = append(paths, full)
 	}
+	sort.Strings(paths)
 
-	sort.Strings(testImages)
-
-	if *verbose {
-		fmt.Printf("Encontradas %d imagens de teste para avaliar.\n\n", len(testImages))
-	}
-
-	// Avaliar cada imagem
 	var results []Result
-	for _, imgPath := range testImages {
+	for _, imgPath := range paths {
 		if *verbose {
 			fmt.Printf("Avaliando: %s\n", imgPath)
 		}
@@ -1219,66 +933,40 @@ func main() {
 		results = append(results, res)
 		printResult(res, *verbose)
 	}
-
-	// Tabela resumo
 	printSummary(results)
-
-	// Relatório de desempenho (se solicitado)
 	if *metricsFlag {
-		if *verbose {
-			fmt.Println("Gerando relatório de desempenho...")
-		}
 		generateMetricsReport(results)
 	}
 }
 
-// generateMetricsReport gera os arquivos de relatório de desempenho.
-// O diretório de saída pode ser definido via PIPELINE_METRICS_DIR (padrão: diretório atual).
 func generateMetricsReport(results []Result) {
 	perImage := make([]metrics.PerImageMetrics, 0, len(results))
 	for _, res := range results {
 		perImage = append(perImage, res.PerImageMetrics())
 	}
-
 	report := metrics.NewReport(perImage)
-
 	outDir := os.Getenv("PIPELINE_METRICS_DIR")
 	if outDir == "" {
 		outDir = "."
 	}
-
-	// Garantir que o diretório existe
-	if err := os.MkdirAll(outDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "ERRO ao criar diretório %s: %v\n", outDir, err)
-		return
-	}
-
-	// Arquivo JSON
+	_ = os.MkdirAll(outDir, 0755)
 	jsonPath := filepath.Join(outDir, "metrics-report.json")
-	jsonFile, err := os.Create(jsonPath)
+	jf, err := os.Create(jsonPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERRO ao criar %s: %v\n", jsonPath, err)
+		fmt.Fprintf(os.Stderr, "ERRO metrics json: %v\n", err)
 		return
 	}
-
-	if err := report.WriteJSON(jsonFile); err != nil {
-		fmt.Fprintf(os.Stderr, "ERRO ao escrever %s: %v\n", jsonPath, err)
-	}
-	jsonFile.Close()
-	fmt.Printf("Relatório JSON salvo: %s\n", jsonPath)
-
-	// Arquivo texto
-	textPath := filepath.Join(outDir, "metrics-report.txt")
-	textFile, err := os.Create(textPath)
+	_ = report.WriteJSON(jf)
+	jf.Close()
+	fmt.Printf("Relatório JSON: %s\n", jsonPath)
+	txtPath := filepath.Join(outDir, "metrics-report.txt")
+	tf, err := os.Create(txtPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERRO ao criar %s: %v\n", textPath, err)
+		fmt.Fprintf(os.Stderr, "ERRO metrics txt: %v\n", err)
 		return
 	}
-
-	report.WriteText(textFile)
-	textFile.Close()
-	fmt.Printf("Relatório texto salvo: %s\n", textPath)
-
-	// Também imprime o texto no terminal para conveniência
+	report.WriteText(tf)
+	tf.Close()
+	fmt.Printf("Relatório texto: %s\n", txtPath)
 	report.WriteText(os.Stdout)
 }

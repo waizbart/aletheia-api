@@ -2,7 +2,7 @@ FROM golang:1.22-bookworm AS builder
 
 WORKDIR /app
 
-ARG ORT_VERSION=1.20.0
+ARG ORT_VERSION=1.25.0
 
 RUN apt-get update && apt-get install -y wget ca-certificates && \
     wget -q https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz && \
@@ -12,14 +12,14 @@ RUN apt-get update && apt-get install -y wget ca-certificates && \
     ldconfig && \
     rm -rf onnxruntime-linux-x64-${ORT_VERSION}* /var/lib/apt/lists/*
 
-COPY go.mod main.go ./
+COPY go.mod main.go constants.go color_hash.go dino.go preprocess.go ort_config.go tiling.go ./
 COPY metrics/ ./metrics/
 RUN go mod tidy 2>&1
 
 RUN CGO_ENABLED=1 \
     CGO_CFLAGS="-I/usr/local/include" \
     CGO_LDFLAGS="-L/usr/local/lib" \
-    go build -o pipeline main.go
+    go build -o pipeline .
 
 FROM debian:bookworm-slim
 WORKDIR /app

@@ -11,12 +11,13 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     torch>=2.0.0 \
     transformers>=4.30.0 \
-    timm>=0.9.0 \
     onnx \
+    onnxruntime>=1.17.0 \
     tensorflow>=2.15.0 \
     tf2onnx>=1.16.0
 
 COPY export_models.py .
+COPY quantize_models.py .
 COPY models/ ./models/
 
-CMD ["python", "export_models.py"]
+CMD ["sh", "-c", "python export_models.py && python quantize_models.py"]
