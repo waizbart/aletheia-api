@@ -7,7 +7,6 @@ Visão orientada ao usuário. Para o detalhamento técnico, ver
 ## Jornada do usuário
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 flowchart TD
     START(["Usuário tem uma imagem"]) --> Q1{Quer certificar<br/>ou verificar?}
 
@@ -35,7 +34,6 @@ flowchart TD
 ## Estados de um certificado
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 stateDiagram-v2
     [*] --> Submetida: POST /certificates
 
@@ -60,7 +58,6 @@ stateDiagram-v2
 ## Modos de verificação
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 flowchart LR
     IN["Entrada do<br/>verificador"] --> MODE{Tipo de<br/>verificação}
 

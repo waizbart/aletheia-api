@@ -9,7 +9,6 @@ EVM, OpenCV) fica atrás de portas declaradas em
 ## Visão de contêineres
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 flowchart LR
     subgraph Externo
         FE["Front-end /<br/>Cliente HTTP"]
@@ -39,7 +38,6 @@ flowchart LR
 ## Visão de componentes
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 flowchart TB
     subgraph cmd["cmd/api"]
         MAIN["main.go<br/>(composition root)"]
@@ -107,7 +105,6 @@ cabeada.
 ## Modelo de dados
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 erDiagram
     CERTIFICATES ||--o{ PHASH_BANDS : "tem 0..N bandas"
     CERTIFICATES {
@@ -138,7 +135,6 @@ reduz o universo antes do re-check Hamming exato de 256 bits.
 ## Integração com a blockchain
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 flowchart LR
     UC["CertifyUseCase"] --> SVC["RPCBlockchainService"]
     SVC -- "POST JSON-RPC<br/>eth_sendTransaction" --> NODE["EVM Node<br/>(Anvil / Sepolia)"]
@@ -163,7 +159,6 @@ Pontos atuais que valem ter em mente:
 ## Deploy local (docker-compose.yml)
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 flowchart LR
     subgraph Host["Host do dev"]
         API_C["api:8080"]

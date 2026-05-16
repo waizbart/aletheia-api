@@ -6,7 +6,6 @@ Fluxos atuais da Aletheia API, conforme implementados em
 ## Certificação (`POST /certificates`)
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 sequenceDiagram
     actor U as Cliente
     participant API as HTTP Handler
@@ -62,7 +61,6 @@ Pontos relevantes:
 ## Verificação por arquivo (`POST /certificates/verify`)
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 sequenceDiagram
     actor U as Cliente
     participant API as HTTP Handler
@@ -109,7 +107,6 @@ sequenceDiagram
 ## Verificação por hash (`GET /certificates/verify?hash=`)
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
 sequenceDiagram
     actor U as Cliente
     participant API as HTTP Handler
