@@ -6,15 +6,15 @@ Fluxos atuais da Aletheia API, conforme implementados em
 ## Certificação (`POST /certificates`)
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 sequenceDiagram
-    actor U as 👤 Cliente
-    participant API as ⚙️ HTTP Handler<br/>(internal/handler)
-    participant UC as 🧠 CertifyUseCase
-    participant CV as 🔍 OpenCV Extractor<br/>(ORB + JPEG)
-    participant DB as 🗄️ PostgreSQL
-    participant S3 as 🪣 S3 / MinIO
-    participant SC as ⛓️ EVM JSON-RPC
+    actor U as Cliente
+    participant API as HTTP Handler
+    participant UC as CertifyUseCase
+    participant CV as OpenCV Extractor
+    participant DB as PostgreSQL
+    participant S3 as S3 / MinIO
+    participant SC as EVM JSON-RPC
 
     U->>API: POST /certificates<br/>multipart file + X-Registrant
     API->>API: parseMediaUpload
@@ -62,14 +62,14 @@ Pontos relevantes:
 ## Verificação por arquivo (`POST /certificates/verify`)
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 sequenceDiagram
-    actor U as 👤 Cliente
-    participant API as ⚙️ HTTP Handler
-    participant UC as 🧠 VerifyUseCase
-    participant CV as 🔍 OpenCV Extractor
-    participant DB as 🗄️ PostgreSQL
-    participant S3 as 🪣 S3 / MinIO
+    actor U as Cliente
+    participant API as HTTP Handler
+    participant UC as VerifyUseCase
+    participant CV as OpenCV Extractor
+    participant DB as PostgreSQL
+    participant S3 as S3 / MinIO
 
     U->>API: POST /certificates/verify<br/>multipart file
     API->>UC: Execute(VerifyInput{Content})
@@ -109,12 +109,12 @@ sequenceDiagram
 ## Verificação por hash (`GET /certificates/verify?hash=`)
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 sequenceDiagram
-    actor U as 👤 Cliente
-    participant API as ⚙️ HTTP Handler
-    participant UC as 🧠 VerifyUseCase
-    participant DB as 🗄️ PostgreSQL
+    actor U as Cliente
+    participant API as HTTP Handler
+    participant UC as VerifyUseCase
+    participant DB as PostgreSQL
 
     U->>API: GET /certificates/verify?hash=<sha256-hex>
     alt hash vazio

@@ -7,42 +7,35 @@ Visão orientada ao usuário. Para o detalhamento técnico, ver
 ## Jornada do usuário
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 flowchart TD
-    START(["👤 Usuário tem uma imagem"]) --> Q1{Quer certificar<br/>ou verificar?}
+    START(["Usuário tem uma imagem"]) --> Q1{Quer certificar<br/>ou verificar?}
 
     Q1 -- "Certificar<br/>(fonte confiável)" --> C1["POST /certificates"]
     C1 --> C2{API consegue<br/>processar?}
-    C2 -- "Hash já existe" --> C_DUP["❌ 409 Conflict"]
-    C2 -- "Erro de extração<br/>ou anchor" --> C_ERR["❌ 422 Unprocessable"]
-    C2 -- "OK" --> C3["✅ 201 Created<br/>+ tx_hash + block_number"]
+    C2 -- "Hash já existe" --> C_DUP["409 Conflict"]
+    C2 -- "Erro de extração<br/>ou anchor" --> C_ERR["422 Unprocessable"]
+    C2 -- "OK" --> C3["201 Created<br/>+ tx_hash + block_number"]
 
     Q1 -- "Verificar" --> V0{Tenho a imagem<br/>ou só o hash?}
     V0 -- "Só o hash" --> V_H["GET /certificates/verify?hash="]
     V_H --> V_H_R{Hash existe<br/>no banco?}
-    V_H_R -- "Sim" --> V_OK["✅ 200 OK<br/>com proveniência"]
-    V_H_R -- "Não" --> V_NO["❌ 404 Not Found"]
+    V_H_R -- "Sim" --> V_OK["200 OK<br/>com proveniência"]
+    V_H_R -- "Não" --> V_NO["404 Not Found"]
 
     V0 -- "Tenho a imagem" --> V_F["POST /certificates/verify"]
     V_F --> V_F1{SHA-256 exato<br/>existe?}
     V_F1 -- "Sim" --> V_OK
     V_F1 -- "Não" --> V_F3["LSH bands,<br/>Hamming-256,<br/>match ORB nos<br/>top-K candidatos"]
     V_F3 --> V_F4{Algum candidato<br/>casou visualmente?}
-    V_F4 -- "Sim" --> V_OK_SIM["✅ 200 OK<br/>por similaridade visual"]
+    V_F4 -- "Sim" --> V_OK_SIM["200 OK<br/>por similaridade visual"]
     V_F4 -- "Não" --> V_NO
-
-    classDef ok fill:#dfd,stroke:#373
-    classDef bad fill:#fdd,stroke:#733
-    classDef ask fill:#ffd,stroke:#773
-    class C3,V_OK,V_OK_SIM ok
-    class C_DUP,C_ERR,V_NO bad
-    class Q1,C2,V0,V_H_R,V_F1,V_F2,V_F4 ask
 ```
 
 ## Estados de um certificado
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 stateDiagram-v2
     [*] --> Submetida: POST /certificates
 
@@ -62,33 +55,25 @@ stateDiagram-v2
       receipt não é consultado
       no fluxo atual.
     end note
-
 ```
 
 ## Modos de verificação
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 flowchart LR
     IN["Entrada do<br/>verificador"] --> MODE{Tipo de<br/>verificação}
 
     MODE -- "hash" --> M1["Lookup direto em<br/>certificates.content_hash"]
-    MODE -- "arquivo idêntico" --> M2["SHA-256 ➜<br/>lookup exato"]
-    MODE -- "arquivo modificado<br/>(re-encode, crop leve,<br/>rotação, flip)" --> M3["pHash variants ➜<br/>LSH bands ➜<br/>Hamming-256 ➜<br/>ORB match"]
+    MODE -- "arquivo idêntico" --> M2["SHA-256 →<br/>lookup exato"]
+    MODE -- "arquivo modificado<br/>(re-encode, crop leve,<br/>rotação, flip)" --> M3["pHash variants →<br/>LSH bands →<br/>Hamming-256 →<br/>ORB match"]
 
     M1 --> OUT{Match?}
     M2 --> OUT
     M3 --> OUT
 
-    OUT -- sim --> R1["✅ Certificate<br/>+ tx_hash + registrant"]
-    OUT -- não --> R2["❌ certified=false"]
-
-    classDef mode fill:#cdf,stroke:#357
-    classDef ok fill:#dfd,stroke:#373
-    classDef bad fill:#fdd,stroke:#733
-    class M1,M2,M3 mode
-    class R1 ok
-    class R2 bad
+    OUT -- sim --> R1["Certificate<br/>+ tx_hash + registrant"]
+    OUT -- não --> R2["certified=false"]
 ```
 
 Diferença prática entre os modos:

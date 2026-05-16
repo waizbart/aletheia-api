@@ -9,22 +9,22 @@ EVM, OpenCV) fica atrás de portas declaradas em
 ## Visão de contêineres
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 flowchart LR
     subgraph Externo
-        FE["🖥️ Front-end /<br/>Cliente HTTP"]
-        OP["🛠️ Operador<br/>(curl, Swagger UI)"]
+        FE["Front-end /<br/>Cliente HTTP"]
+        OP["Operador<br/>(curl, Swagger UI)"]
     end
 
     subgraph Aletheia["Aletheia API (Go 1.22)"]
-        API["⚙️ HTTP API<br/>net/http + ServeMux<br/>:8080"]
+        API["HTTP API<br/>net/http + ServeMux<br/>:8080"]
     end
 
     subgraph Infra["Infraestrutura"]
-        DB[("🗄️ PostgreSQL 16<br/>certificates<br/>phash_bands")]
-        S3[("🪣 S3 / MinIO<br/>bucket aletheia-images")]
-        CHAIN["⛓️ EVM JSON-RPC<br/>(Anvil local, Sepolia em prod)"]
-        SC["📜 Smart Contract<br/>âncora de hash"]
+        DB[("PostgreSQL 16<br/>certificates<br/>phash_bands")]
+        S3[("S3 / MinIO<br/>bucket aletheia-images")]
+        CHAIN["EVM JSON-RPC<br/>(Anvil local, Sepolia em prod)"]
+        SC["Smart Contract<br/>âncora de hash"]
     end
 
     FE -- "REST/JSON<br/>multipart upload" --> API
@@ -34,19 +34,12 @@ flowchart LR
     API -- "PutObject /<br/>GetObject (AWS SDK v2)" --> S3
     API -- "eth_sendTransaction<br/>(calldata = hash‖commit)" --> CHAIN
     CHAIN -- "inclui tx no bloco" --> SC
-
-    classDef ext fill:#eef,stroke:#557,color:#113
-    classDef app fill:#dfd,stroke:#373,color:#131
-    classDef inf fill:#ffd,stroke:#773,color:#311
-    class FE,OP ext
-    class API app
-    class DB,S3,CHAIN,SC inf
 ```
 
 ## Visão de componentes
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 flowchart TB
     subgraph cmd["cmd/api"]
         MAIN["main.go<br/>(composition root)"]
@@ -103,15 +96,6 @@ flowchart TB
     EVM -. implementa .-> PORTS
     BLOB -. implementa .-> PORTS
     ORB -. implementa .-> PORTS
-
-    classDef d fill:#ffd,stroke:#773
-    classDef u fill:#dfd,stroke:#373
-    classDef h fill:#cdf,stroke:#357
-    classDef i fill:#fdd,stroke:#733
-    class ENT d
-    class UC_C,UC_V,PORTS u
-    class H_CERT,H_DOCS,H_HEAL,MID,DTO h
-    class PG,EVM,BLOB,FACT,ORB,CFG i
 ```
 
 Regra de dependência (Clean Architecture):
@@ -123,7 +107,7 @@ cabeada.
 ## Modelo de dados
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 erDiagram
     CERTIFICATES ||--o{ PHASH_BANDS : "tem 0..N bandas"
     CERTIFICATES {
@@ -154,11 +138,11 @@ reduz o universo antes do re-check Hamming exato de 256 bits.
 ## Integração com a blockchain
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 flowchart LR
     UC["CertifyUseCase"] --> SVC["RPCBlockchainService"]
     SVC -- "POST JSON-RPC<br/>eth_sendTransaction" --> NODE["EVM Node<br/>(Anvil / Sepolia)"]
-    NODE -- "minera + inclui em bloco" --> CHAIN[("⛓️ Blockchain")]
+    NODE -- "minera + inclui em bloco" --> CHAIN[("Blockchain")]
     NODE -. "retorna txHash" .-> SVC
     SVC -. "txHash, blockNum" .-> UC
 
@@ -179,7 +163,7 @@ Pontos atuais que valem ter em mente:
 ## Deploy local (docker-compose.yml)
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme': 'neutral'}}%%
 flowchart LR
     subgraph Host["Host do dev"]
         API_C["api:8080"]
