@@ -1,0 +1,28 @@
+services:
+  onnx-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["go", "run", "server/main.go"]
+    deploy:
+      replicas: 5
+    environment:
+      - PORT=8080
+      - LD_LIBRARY_PATH=/usr/lib
+    volumes:
+      - .:/app
+      - ../testdata:/testdata
+
+  hasher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["go", "run", "-tags", "gocv_specific_modules", "main.go"]
+    environment:
+      - ONNX_SERVER_URL=http://onnx-worker:8080/predict
+      - LD_LIBRARY_PATH=/usr/lib
+    volumes:
+      - .:/app
+      - ../testdata:/testdata
+    depends_on:
+      - onnx-worker

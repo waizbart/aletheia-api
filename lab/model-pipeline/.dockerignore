@@ -1,0 +1,8 @@
+venv/
+.git/
+__pycache__/
+*.pyc
+.DS_Store
+requirements.txt
+metrics-output/
+memory.md

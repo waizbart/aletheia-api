@@ -1,0 +1,23 @@
+# Dockerfile para exportar modelos PyTorch e Keras → ONNX.
+# Use quando o Python local não tem suporte a TensorFlow (ex: Python ≥3.14).
+#
+# Uso:
+#   docker compose run --rm export
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    torch>=2.0.0 \
+    transformers>=4.30.0 \
+    onnx \
+    onnxruntime>=1.17.0 \
+    tensorflow>=2.15.0 \
+    tf2onnx>=1.16.0
+
+COPY export_models.py .
+COPY quantize_models.py .
+COPY models/ ./models/
+
+CMD ["sh", "-c", "python export_models.py && python quantize_models.py"]
