@@ -16,48 +16,97 @@ import (
 
 func TestCertifyUseCase_Execute(t *testing.T) {
 	tests := []struct {
-		name    string
-		repo    *mockRepo
-		chain   *mockBlockchain
-		input   usecase.CertifyInput
-		wantErr string
+		name      string
+		repo      *mockRepo
+		chain     *mockBlockchain
+		extractor *mockExtractor
+		blobs     *mockBlobStore
+		input     usecase.CertifyInput
+		wantErr   string
+		check     func(t *testing.T, out *usecase.CertifyOutput)
 	}{
 		{
-			name: "happy path",
-			repo: &mockRepo{
-				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
-					return nil, nil
-				},
-				saveFn: func(_ context.Context, _ *domain.Certificate) error {
-					return nil
-				},
-			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _ string) (string, uint64, error) {
-					return "0xabc", 1, nil
-				},
-			},
-			input: usecase.CertifyInput{
-				Content:    strings.NewReader("test content"),
-				Registrant: "tester",
-			},
-		},
-		{
-			name: "image sets perceptual hash",
+			name: "happy path non-image",
 			repo: &mockRepo{
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
 				saveFn: func(_ context.Context, cert *domain.Certificate) error {
-					if cert.PerceptualHash == nil {
-						t.Fatal("expected perceptual hash for image content")
+					if cert.PHash != nil {
+						t.Fatal("expected nil pHash for non-image")
+					}
+					if cert.Signature != nil {
+						t.Fatal("expected nil signature for non-image")
+					}
+					if cert.ImageBlobKey != "" {
+						t.Fatal("expected empty blob key for non-image")
 					}
 					return nil
 				},
 			},
 			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _ string) (string, uint64, error) {
+				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
 					return "0xabc", 1, nil
+				},
+			},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input: usecase.CertifyInput{
+				Content:    strings.NewReader("not an image"),
+				Registrant: "tester",
+			},
+		},
+		{
+			name: "happy path image with signature and blob",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				saveFn: func(_ context.Context, cert *domain.Certificate) error {
+					if cert.PHash == nil {
+						t.Fatal("expected pHash for image content")
+					}
+					if cert.Signature == nil {
+						t.Fatal("expected signature for image content")
+					}
+					if cert.ImageBlobKey == "" {
+						t.Fatal("expected blob key for image content")
+					}
+					if cert.FeatureCommitment == nil {
+						t.Fatal("expected feature commitment to be set")
+					}
+					expected := domain.FeatureCommitment(cert.PHash, cert.Signature)
+					if *cert.FeatureCommitment != expected {
+						t.Fatalf("feature commitment on cert does not match domain helper")
+					}
+					return nil
+				},
+			},
+			chain: &mockBlockchain{
+				registerHashFn: func(_ context.Context, contentHash, featureCommitment string) (string, uint64, error) {
+					if len(contentHash) != 64 {
+						t.Fatalf("contentHash forwarded to chain has wrong length: %d", len(contentHash))
+					}
+					if len(featureCommitment) != 64 {
+						t.Fatalf("featureCommitment forwarded to chain has wrong length: %d", len(featureCommitment))
+					}
+					return "0xabc", 1, nil
+				},
+			},
+			extractor: &mockExtractor{
+				computeFn: func(_ context.Context, _ []byte) (*domain.FeatureSignature, []byte, error) {
+					return &domain.FeatureSignature{Descriptors: []byte{0x01}, Keypoints: []byte{0x02}}, []byte("jpeg"), nil
+				},
+			},
+			blobs: &mockBlobStore{
+				putFn: func(_ context.Context, key string, data []byte) error {
+					if !strings.HasSuffix(key, ".jpg") {
+						t.Fatalf("blob key should end with .jpg, got %q", key)
+					}
+					if len(data) == 0 {
+						t.Fatal("blob data is empty")
+					}
+					return nil
 				},
 			},
 			input: usecase.CertifyInput{
@@ -66,13 +115,67 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 			},
 		},
 		{
+			name: "extractor failure does not block certify",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				saveFn: func(_ context.Context, cert *domain.Certificate) error {
+					if cert.Signature != nil {
+						t.Fatal("expected nil signature when extractor fails")
+					}
+					if cert.PHash == nil {
+						t.Fatal("expected pHash even when extractor fails")
+					}
+					return nil
+				},
+			},
+			chain: &mockBlockchain{
+				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
+					return "0xabc", 1, nil
+				},
+			},
+			extractor: &mockExtractor{
+				computeFn: func(_ context.Context, _ []byte) (*domain.FeatureSignature, []byte, error) {
+					return nil, nil, errors.New("no features")
+				},
+			},
+			blobs: &mockBlobStore{},
+			input: usecase.CertifyInput{
+				Content:    bytes.NewReader(sampleJPEGForCertify(t)),
+				Registrant: "tester",
+			},
+		},
+		{
+			name: "blob store error aborts certify",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+			},
+			chain:     &mockBlockchain{},
+			extractor: &mockExtractor{},
+			blobs: &mockBlobStore{
+				putFn: func(_ context.Context, _ string, _ []byte) error {
+					return errors.New("s3 down")
+				},
+			},
+			input: usecase.CertifyInput{
+				Content:    bytes.NewReader(sampleJPEGForCertify(t)),
+				Registrant: "tester",
+			},
+			wantErr: "storing image blob",
+		},
+		{
 			name: "already certified",
 			repo: &mockRepo{
 				findByHashFn: func(_ context.Context, hash string) (*domain.Certificate, error) {
 					return &domain.Certificate{ContentHash: hash}, nil
 				},
 			},
-			chain: &mockBlockchain{},
+			chain:     &mockBlockchain{},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
 			input: usecase.CertifyInput{
 				Content:    strings.NewReader("test content"),
 				Registrant: "tester",
@@ -80,9 +183,11 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 			wantErr: "already certified",
 		},
 		{
-			name:  "hash error",
-			repo:  &mockRepo{},
-			chain: &mockBlockchain{},
+			name:      "hash error",
+			repo:      &mockRepo{},
+			chain:     &mockBlockchain{},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
 			input: usecase.CertifyInput{
 				Content:    errReader{},
 				Registrant: "tester",
@@ -96,7 +201,9 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 					return nil, errors.New("db error")
 				},
 			},
-			chain: &mockBlockchain{},
+			chain:     &mockBlockchain{},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
 			input: usecase.CertifyInput{
 				Content:    strings.NewReader("test content"),
 				Registrant: "tester",
@@ -111,10 +218,12 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _ string) (string, uint64, error) {
+				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
 					return "", 0, errors.New("chain error")
 				},
 			},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
 			input: usecase.CertifyInput{
 				Content:    strings.NewReader("test content"),
 				Registrant: "tester",
@@ -132,10 +241,12 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _ string) (string, uint64, error) {
+				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
 					return "0xabc", 1, nil
 				},
 			},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
 			input: usecase.CertifyInput{
 				Content:    strings.NewReader("test content"),
 				Registrant: "tester",
@@ -146,7 +257,7 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uc := usecase.NewCertifyUseCase(tt.repo, tt.chain)
+			uc := usecase.NewCertifyUseCase(tt.repo, tt.chain, tt.extractor, tt.blobs)
 			out, err := uc.Execute(context.Background(), tt.input)
 
 			if tt.wantErr != "" {
@@ -167,6 +278,9 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 			}
 			if out.Certificate.Registrant != tt.input.Registrant {
 				t.Errorf("registrant = %q, want %q", out.Certificate.Registrant, tt.input.Registrant)
+			}
+			if tt.check != nil {
+				tt.check(t, out)
 			}
 		})
 	}

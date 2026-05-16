@@ -3,20 +3,24 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"time"
 
 	"github.com/waizbart/aletheia-api/internal/domain"
 )
 
 type CertifyUseCase struct {
-	repo  CertificateRepository
-	chain BlockchainService
+	repo      CertificateRepository
+	chain     BlockchainService
+	extractor FeatureExtractor
+	blobs     ImageBlobStore
 }
 
-func NewCertifyUseCase(repo CertificateRepository, chain BlockchainService) *CertifyUseCase {
-	return &CertifyUseCase{repo: repo, chain: chain}
+func NewCertifyUseCase(repo CertificateRepository, chain BlockchainService, extractor FeatureExtractor, blobs ImageBlobStore) *CertifyUseCase {
+	return &CertifyUseCase{repo: repo, chain: chain, extractor: extractor, blobs: blobs}
 }
 
 type CertifyInput struct {
@@ -35,7 +39,6 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (*Certif
 	}
 
 	contentHash, _ := domain.HashContent(bytes.NewReader(content))
-	perceptualHash := domain.PerceptualHashFromBytes(content)
 
 	existing, err := uc.repo.FindByHash(ctx, contentHash)
 	if err != nil {
@@ -45,18 +48,41 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (*Certif
 		return nil, fmt.Errorf("certify: %w", domain.ErrAlreadyCertified)
 	}
 
-	txHash, blockNum, err := uc.chain.RegisterHash(ctx, contentHash)
+	phash := domain.PHash256(content)
+
+	var signature *domain.FeatureSignature
+	var blobKey string
+	if phash != nil {
+		sig, jpegBytes, ferr := uc.extractor.Compute(ctx, content)
+		if ferr != nil {
+			log.Printf("certify: feature extraction failed for %s: %v", contentHash, ferr)
+		} else {
+			signature = sig
+			blobKey = contentHash + ".jpg"
+			if err := uc.blobs.Put(ctx, blobKey, jpegBytes); err != nil {
+				return nil, fmt.Errorf("certify: storing image blob: %w", err)
+			}
+		}
+	}
+
+	commitment := domain.FeatureCommitment(phash, signature)
+	commitmentHex := hex.EncodeToString(commitment[:])
+
+	txHash, blockNum, err := uc.chain.RegisterHash(ctx, contentHash, commitmentHex)
 	if err != nil {
 		return nil, fmt.Errorf("certify: registering on chain: %w", err)
 	}
 
 	cert := &domain.Certificate{
-		ContentHash:    contentHash,
-		PerceptualHash: perceptualHash,
-		Registrant:     in.Registrant,
-		TxHash:         txHash,
-		BlockNumber:    blockNum,
-		CreatedAt:      time.Now().UTC(),
+		ContentHash:       contentHash,
+		PHash:             phash,
+		Signature:         signature,
+		FeatureCommitment: &commitment,
+		ImageBlobKey:      blobKey,
+		Registrant:        in.Registrant,
+		TxHash:            txHash,
+		BlockNumber:       blockNum,
+		CreatedAt:         time.Now().UTC(),
 	}
 
 	if err := uc.repo.Save(ctx, cert); err != nil {

@@ -36,11 +36,20 @@ func NewEVMBlockchainService(rpcURL, fromAddress, anchorAddress string) (*RPCBlo
 	}, nil
 }
 
-func (s *RPCBlockchainService) RegisterHash(ctx context.Context, hash string) (string, uint64, error) {
-	data, err := normalizeHashToBytes(hash)
+func (s *RPCBlockchainService) RegisterHash(ctx context.Context, contentHash, featureCommitment string) (string, uint64, error) {
+	contentBytes, err := normalizeHashToBytes(contentHash)
 	if err != nil {
-		return "", 0, err
+		return "", 0, fmt.Errorf("content hash: %w", err)
 	}
+	commitmentBytes, err := normalizeHashToBytes(featureCommitment)
+	if err != nil {
+		return "", 0, fmt.Errorf("feature commitment: %w", err)
+	}
+
+	// Calldata layout: 32 bytes contentHash || 32 bytes featureCommitment.
+	// Anchors both in a single transaction so that auditing requires no
+	// off-chain trust beyond the bundle stored alongside the certificate.
+	payloadBytes := append(contentBytes, commitmentBytes...)
 
 	reqBody := map[string]any{
 		"jsonrpc": "2.0",
@@ -49,7 +58,7 @@ func (s *RPCBlockchainService) RegisterHash(ctx context.Context, hash string) (s
 		"params": []map[string]string{{
 			"from": s.fromAddress,
 			"to":   s.toAddress,
-			"data": "0x" + hex.EncodeToString(data),
+			"data": "0x" + hex.EncodeToString(payloadBytes),
 		}},
 	}
 

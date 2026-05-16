@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/waizbart/aletheia-api/internal/config"
+	"github.com/waizbart/aletheia-api/internal/feature"
 	"github.com/waizbart/aletheia-api/internal/handler"
 	"github.com/waizbart/aletheia-api/internal/repository"
 	"github.com/waizbart/aletheia-api/internal/usecase"
@@ -31,14 +33,24 @@ func main() {
 	}
 	log.Println("connected to PostgreSQL")
 
+	ctx := context.Background()
+	blobStore, err := repository.NewS3BlobStoreFromEnv(ctx)
+	if err != nil {
+		log.Fatalf("initializing blob store: %v", err)
+	}
+	log.Println("connected to S3-compatible blob store")
+
+	extractor := feature.NewOpenCVExtractor()
+	defer extractor.Close()
+
 	certRepo := repository.NewPostgresCertificateRepo(db)
 	chainSvc, err := repository.NewBlockchainServiceFromEnv()
 	if err != nil {
 		log.Fatalf("initializing blockchain service: %v", err)
 	}
 
-	certifyUC := usecase.NewCertifyUseCase(certRepo, chainSvc)
-	verifyUC := usecase.NewVerifyUseCase(certRepo)
+	certifyUC := usecase.NewCertifyUseCase(certRepo, chainSvc, extractor, blobStore)
+	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor, blobStore)
 
 	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC)
 
