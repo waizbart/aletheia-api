@@ -9,17 +9,12 @@ import (
 const maxUploadSize = 100 << 20 // 100 MB
 
 var allowedMediaTypes = map[string]bool{
-	"image/jpeg":      true,
-	"image/png":       true,
-	"image/gif":       true,
-	"image/webp":      true,
-	"image/bmp":       true,
-	"image/tiff":      true,
-	"video/mp4":       true,
-	"video/webm":      true,
-	"video/quicktime": true,
-	"video/x-msvideo": true,
-	"video/mpeg":      true,
+	"image/jpeg": true,
+	"image/png":  true,
+	"image/gif":  true,
+	"image/webp": true,
+	"image/bmp":  true,
+	"image/tiff": true,
 }
 
 func parseMediaUpload(w http.ResponseWriter, r *http.Request) (multipart.File, bool) {
@@ -34,7 +29,7 @@ func parseMediaUpload(w http.ResponseWriter, r *http.Request) (multipart.File, b
 	contentType := header.Header.Get("Content-Type")
 	if !allowedMediaTypes[strings.ToLower(contentType)] {
 		file.Close()
-		writeError(w, http.StatusUnsupportedMediaType, "only image and video files are accepted")
+		writeError(w, http.StatusUnsupportedMediaType, "only image files are accepted")
 		return nil, false
 	}
 

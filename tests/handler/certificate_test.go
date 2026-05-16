@@ -125,7 +125,7 @@ func TestHandleCertify_UseCaseError(t *testing.T) {
 	}
 	mux := setupMux(cert, &mockVerifier{})
 
-	req := newUploadRequest(t, http.MethodPost, "/certificates", "video/mp4", []byte("vid"))
+	req := newUploadRequest(t, http.MethodPost, "/certificates", "image/png", []byte("img"))
 	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)
 
@@ -245,7 +245,7 @@ func TestHandleVerifyByFile_UnsupportedType(t *testing.T) {
 func TestHandleVerifyByFile_UseCaseError(t *testing.T) {
 	mux := setupMux(&mockCertifier{}, &mockVerifier{executeFn: verifyErr})
 
-	req := newUploadRequest(t, http.MethodPost, "/certificates/verify", "video/webm", []byte("vid"))
+	req := newUploadRequest(t, http.MethodPost, "/certificates/verify", "image/jpeg", []byte("img"))
 	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)
 
