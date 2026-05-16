@@ -1,210 +1,456 @@
 openapi: "3.0.3"
+
 info:
   title: Aletheia API
-  description: Content certification API that uses cryptographic hashing and blockchain registration to prove the authenticity of images and videos.
-  version: "0.1.0"
+  version: "0.2.0"
+  summary: Certificação de mídia ancorada em blockchain.
+  description: |
+    A Aletheia API certifica imagens calculando um SHA-256 do
+    conteúdo, ancorando esse hash em um contrato EVM e armazenando
+    metadados em PostgreSQL. Também extrai uma assinatura visual
+    (pHash + descritores ORB) que permite verificação por
+    similaridade quando o arquivo foi re-encodado, rotacionado,
+    espelhado ou recortado levemente.
+
+    ## Fluxos principais
+
+    - `POST /certificates` registra uma imagem nova. O SHA-256 é a
+      chave única; reenvio do mesmo arquivo devolve `409 Conflict`.
+    - `GET /certificates/verify?hash=...` consulta por hash exato.
+    - `POST /certificates/verify` aceita upload e tenta primeiro o
+      match exato por SHA-256, depois o caminho de similaridade
+      visual via pHash + ORB.
+
+    ## Convenções
+
+    - Todo corpo é JSON (`application/json`), exceto uploads que usam
+      `multipart/form-data` com o campo `file` (apenas imagens).
+    - Hashes SHA-256 são strings hex de 64 caracteres em minúsculas.
+    - Datas são RFC 3339 em UTC (`2006-01-02T15:04:05Z`).
+    - Erros seguem o schema `Error` com um único campo `error`.
+
+    ## Autenticação
+
+    A API ainda não exige autenticação. O header `X-Registrant` é
+    apenas registrado no certificado; em produção precisa vir
+    combinado com auth real antes de ser tratado como prova de
+    proveniência.
+  contact:
+    name: Aletheia
+    url: https://github.com/waizbart/aletheia-api
   license:
     name: MIT
+    url: https://opensource.org/licenses/MIT
 
 servers:
   - url: http://localhost:8080
-    description: Local development
+    description: Ambiente de desenvolvimento local (docker-compose)
+
+externalDocs:
+  description: Repositório no GitHub
+  url: https://github.com/waizbart/aletheia-api
 
 tags:
   - name: Certificates
-    description: Content certification and verification
+    description: Registro e verificação de certificados de mídia.
   - name: Health
-    description: Service health checks
+    description: Endpoints de saúde do serviço.
 
 paths:
   /health:
     get:
       tags: [Health]
-      summary: Health check
-      description: Returns 200 when the service is running.
+      summary: Verifica saúde do serviço
+      description: Retorna `200 OK` quando o processo está no ar. Não
+        depende de Postgres, S3 ou RPC; serve apenas para liveness.
       operationId: healthCheck
       responses:
         "200":
-          description: Service is healthy
+          description: Serviço no ar.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ok
+                $ref: "#/components/schemas/Health"
+              examples:
+                ok:
+                  value: { status: "ok" }
 
   /certificates:
     post:
       tags: [Certificates]
-      summary: Certify content
+      summary: Certifica uma imagem
       description: |
-        Upload an image or video file. The API computes a SHA-256 hash,
-        registers it on the blockchain, and stores the certificate in the database.
+        Recebe um upload de imagem, calcula `SHA-256`, ancora o par
+        `(contentHash, featureCommitment)` em uma transação EVM e
+        persiste o certificado.
+
+        Extrai um perceptual hash de 256 bits e descritores ORB via
+        OpenCV; o JPEG normalizado vai para o blob store (S3/MinIO)
+        para uso futuro em re-checagem visual.
       operationId: certifyContent
       parameters:
-        - in: header
-          name: X-Registrant
-          schema:
-            type: string
-          description: Identifier of the trusted registrant (e.g. wallet address or organization ID).
+        - $ref: "#/components/parameters/RegistrantHeader"
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
-              type: object
-              required: [file]
-              properties:
-                file:
-                  type: string
-                  format: binary
-                  description: Image or video file to certify (max 100 MB).
+              $ref: "#/components/schemas/UploadRequest"
+            encoding:
+              file:
+                contentType: >-
+                  image/jpeg, image/png, image/gif, image/webp,
+                  image/bmp, image/tiff
       responses:
         "201":
-          description: Content certified successfully
+          description: Conteúdo certificado.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Certificate"
+              examples:
+                imagem:
+                  $ref: "#/components/examples/CertificateImage"
         "400":
-          description: Missing or invalid file
+          $ref: "#/components/responses/BadFile"
+        "409":
+          description: Conteúdo já certificado (mesmo SHA-256).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              examples:
+                duplicado:
+                  value: { error: "certify: content already certified" }
+        "413":
+          description: Arquivo excede o limite de upload (100 MB).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                grande_demais:
+                  value: { error: "missing or invalid file field" }
         "415":
-          description: Unsupported file type (not an image or video)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/UnsupportedMedia"
         "422":
-          description: Content already certified or blockchain error
+          description: Falha ao processar (erro de extração, anchor ou persistência).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              examples:
+                anchor:
+                  value: { error: "certify: registering on chain: rpc error: nonce too low" }
+                storage:
+                  value: { error: "certify: storing image blob: s3 put: timeout" }
 
   /certificates/verify:
     get:
       tags: [Certificates]
-      summary: Verify content by hash
-      description: Check whether a SHA-256 hash has been certified.
+      summary: Verifica certificação por hash
+      description: |
+        Consulta direta por `SHA-256`. Útil quando o cliente já tem o
+        hash e só quer confirmar se foi certificado e por quem.
+
+        Retorna `200 OK` com o certificado quando encontrado e
+        `404 Not Found` com `certified=false` quando não há registro.
       operationId: verifyByHash
       parameters:
-        - in: query
-          name: hash
-          required: true
-          schema:
-            type: string
-          description: SHA-256 hex-encoded content hash.
-          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        - $ref: "#/components/parameters/HashQuery"
       responses:
         "200":
-          description: Content is certified
+          description: Conteúdo certificado.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/VerifyResponse"
-        "404":
-          description: Content is not certified
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VerifyResponse"
+              examples:
+                certificado:
+                  $ref: "#/components/examples/VerifyHit"
         "400":
-          description: Missing hash parameter
+          description: Parâmetro `hash` ausente ou inválido.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              examples:
+                vazio:
+                  value: { error: "query parameter 'hash' is required" }
+        "404":
+          description: Nenhum certificado para o hash informado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+              examples:
+                nao_certificado:
+                  $ref: "#/components/examples/VerifyMiss"
 
     post:
       tags: [Certificates]
-      summary: Verify content by file upload
-      description: Upload an image or video to check whether its content has been certified.
+      summary: Verifica certificação por upload de imagem
+      description: |
+        Aceita um upload de imagem e tenta dois caminhos em sequência:
+
+        1. Match exato por `SHA-256`.
+        2. Extrai pHash em várias rotações/flips, faz prefilter LSH
+           em `phash_bands`, calcula Hamming-256 contra os candidatos
+           sobreviventes (`maxDistance` configurado em domínio) e,
+           nos melhores `top-K`, roda re-check com ORB contra a
+           imagem original armazenada no blob store.
+
+        O custo do segundo caminho cresce com o tamanho da base e da
+        imagem enviada, então prefira o `GET ?hash=` quando o
+        cliente já tem o hash.
       operationId: verifyByFile
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
-              type: object
-              required: [file]
-              properties:
-                file:
-                  type: string
-                  format: binary
-                  description: Image or video file to verify (max 100 MB).
+              $ref: "#/components/schemas/UploadRequest"
+            encoding:
+              file:
+                contentType: >-
+                  image/jpeg, image/png, image/gif, image/webp,
+                  image/bmp, image/tiff
       responses:
         "200":
-          description: Content is certified
+          description: Conteúdo certificado (match exato ou por similaridade).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/VerifyResponse"
-        "404":
-          description: Content is not certified
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VerifyResponse"
+              examples:
+                exato:
+                  $ref: "#/components/examples/VerifyHit"
+                similar:
+                  $ref: "#/components/examples/VerifyHitSimilar"
         "400":
-          description: Missing or invalid file
+          $ref: "#/components/responses/BadFile"
+        "404":
+          description: Nenhum certificado correspondente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+              examples:
+                nao_certificado:
+                  $ref: "#/components/examples/VerifyMiss"
+        "413":
+          description: Arquivo excede o limite de upload (100 MB).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "415":
-          description: Unsupported file type (not an image or video)
+          $ref: "#/components/responses/UnsupportedMedia"
+        "500":
+          description: Erro interno (leitura, extração ou banco).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              examples:
+                interno:
+                  value: { error: "verify: postgres find by hash: connection refused" }
 
 components:
+  parameters:
+    RegistrantHeader:
+      in: header
+      name: X-Registrant
+      required: false
+      schema:
+        type: string
+        maxLength: 256
+      description: |
+        Identificador do registrante (endereço de carteira EVM,
+        identificador organizacional ou similar). É gravado como está
+        no certificado e devolvido em consultas. Hoje **não** é
+        validado pela API.
+      examples:
+        wallet:
+          value: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
+        org:
+          value: "newsroom:globo"
+
+    HashQuery:
+      in: query
+      name: hash
+      required: true
+      schema:
+        $ref: "#/components/schemas/Sha256Hex"
+      description: SHA-256 do conteúdo, em hex de 64 caracteres.
+      example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+  responses:
+    BadFile:
+      description: Campo `file` ausente, vazio ou inválido.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            ausente:
+              value: { error: "missing or invalid file field" }
+
+    UnsupportedMedia:
+      description: >-
+        Tipo MIME não aceito. Aceitos: `image/jpeg`, `image/png`,
+        `image/gif`, `image/webp`, `image/bmp`, `image/tiff`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            tipo_invalido:
+              value: { error: "only image files are accepted" }
+
   schemas:
+    Sha256Hex:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+      minLength: 64
+      maxLength: 64
+      description: Hash SHA-256 em hex minúsculo, 64 caracteres.
+      example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+    EvmAddress:
+      type: string
+      pattern: "^0x[0-9a-fA-F]{40}$"
+      description: Endereço EVM (20 bytes hex com prefixo `0x`).
+      example: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
+
+    EvmTxHash:
+      type: string
+      pattern: "^0x[0-9a-fA-F]{64}$"
+      description: Hash de transação EVM (32 bytes hex com prefixo `0x`).
+      example: "0x9fce0c2b9b0d2d8f3a1e5e7d4c5b3a8f7e6d4c3b2a1908f7e6d5c4b3a2918e7"
+
+    UploadRequest:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: |
+            Imagem a certificar/verificar. Limite de 100 MB. Tipos
+            aceitos: JPEG, PNG, GIF, WebP, BMP, TIFF.
+
     Certificate:
       type: object
+      required:
+        - id
+        - content_hash
+        - registrant
+        - tx_hash
+        - block_number
+        - created_at
       properties:
         id:
           type: string
           format: uuid
+          description: Identificador interno do certificado.
           example: "550e8400-e29b-41d4-a716-446655440000"
         content_hash:
-          type: string
-          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          $ref: "#/components/schemas/Sha256Hex"
         registrant:
           type: string
+          description: Valor recebido no header `X-Registrant` ao certificar.
           example: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
         tx_hash:
-          type: string
-          example: "0xabc123def456..."
+          allOf:
+            - $ref: "#/components/schemas/EvmTxHash"
+          description: Hash da transação EVM que ancorou o certificado.
         block_number:
           type: integer
           format: int64
-          example: 12345
+          minimum: 0
+          description: |
+            Número do bloco que incluiu a transação. **No momento é
+            sempre `0`** porque o serviço não consulta o receipt
+            depois do `eth_sendTransaction`.
+          example: 0
         created_at:
           type: string
           format: date-time
+          description: Instante de criação em UTC (RFC 3339).
           example: "2026-02-25T12:00:00Z"
 
     VerifyResponse:
       type: object
+      required: [certified]
       properties:
         certified:
           type: boolean
+          description: |
+            `true` se há certificado correspondente, `false` caso
+            contrário. Quando `false`, `certificate` virá ausente ou
+            nulo e o status HTTP será `404`.
           example: true
         certificate:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/Certificate"
 
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+          example: ok
+
     Error:
       type: object
+      required: [error]
       properties:
         error:
           type: string
+          description: Mensagem legível descrevendo a falha.
           example: "missing or invalid file field"
+
+  examples:
+    CertificateImage:
+      summary: Certificado de imagem com âncora on-chain
+      value:
+        id: "550e8400-e29b-41d4-a716-446655440000"
+        content_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        registrant: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
+        tx_hash: "0x9fce0c2b9b0d2d8f3a1e5e7d4c5b3a8f7e6d4c3b2a1908f7e6d5c4b3a2918e7"
+        block_number: 0
+        created_at: "2026-02-25T12:00:00Z"
+
+    VerifyHit:
+      summary: Match exato por SHA-256
+      value:
+        certified: true
+        certificate:
+          id: "550e8400-e29b-41d4-a716-446655440000"
+          content_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          registrant: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
+          tx_hash: "0x9fce0c2b9b0d2d8f3a1e5e7d4c5b3a8f7e6d4c3b2a1908f7e6d5c4b3a2918e7"
+          block_number: 0
+          created_at: "2026-02-25T12:00:00Z"
+
+    VerifyHitSimilar:
+      summary: Match por similaridade visual (pHash + ORB)
+      value:
+        certified: true
+        certificate:
+          id: "a1b2c3d4-e5f6-7890-abcd-ef0123456789"
+          content_hash: "1f0e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"
+          registrant: "newsroom:globo"
+          tx_hash: "0x1111111111111111111111111111111111111111111111111111111111111111"
+          block_number: 0
+          created_at: "2026-02-20T08:13:42Z"
+
+    VerifyMiss:
+      summary: Conteúdo não certificado
+      value:
+        certified: false
+        certificate: null

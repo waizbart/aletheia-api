@@ -1,11 +1,11 @@
 # Aletheia API
 
-Content certification API that uses cryptographic hashing and blockchain registration to prove the authenticity of images and videos, preventing false AI-generated content from being passed off as real.
+Content certification API that uses cryptographic hashing and blockchain registration to prove the authenticity of images, preventing false AI-generated content from being passed off as real.
 
 ## How It Works
 
-1. **Certify** — A trusted source uploads an image or video. The API computes a SHA-256 hash, computes a perceptual hash for images, registers the content hash on blockchain, and stores certificate metadata in PostgreSQL.
-2. **Verify** — Anyone can upload an image/video or provide a hash to check whether it has been certified. The API first checks exact SHA-256 matches; for images it can fall back to perceptual-hash matching.
+1. **Certify** — A trusted source uploads an image. The API computes a SHA-256 hash, computes a perceptual hash, registers the content hash on blockchain, and stores certificate metadata in PostgreSQL.
+2. **Verify** — Anyone can upload an image or provide a hash to check whether it has been certified. The API first checks exact SHA-256 matches and can fall back to perceptual-hash matching.
 
 ## Prerequisites
 
@@ -90,7 +90,7 @@ Returns `200 OK` when the server is running.
 POST /certificates
 Content-Type: multipart/form-data
 
-Form field: "file" (image or video)
+Form field: "file" (image)
 ```
 
 **Response** (`201 Created`):
@@ -113,7 +113,7 @@ By file upload:
 POST /certificates/verify
 Content-Type: multipart/form-data
 
-Form field: "file" (image or video)
+Form field: "file" (image)
 ```
 
 By hash:
