@@ -7,7 +7,6 @@ Visão orientada ao usuário. Para o detalhamento técnico, ver
 ## Jornada do usuário
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 flowchart TD
     START(["Usuário tem uma imagem"]) --> Q1{Quer certificar<br/>ou verificar?}
 
@@ -35,7 +34,6 @@ flowchart TD
 ## Estados de um certificado
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 stateDiagram-v2
     [*] --> Submetida: POST /certificates
 
@@ -60,7 +58,6 @@ stateDiagram-v2
 ## Modos de verificação
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 flowchart LR
     IN["Entrada do<br/>verificador"] --> MODE{Tipo de<br/>verificação}
 

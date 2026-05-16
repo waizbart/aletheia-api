@@ -6,7 +6,6 @@ Fluxos atuais da Aletheia API, conforme implementados em
 ## Certificação (`POST /certificates`)
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 sequenceDiagram
     actor U as Cliente
     participant API as HTTP Handler
@@ -62,7 +61,6 @@ Pontos relevantes:
 ## Verificação por arquivo (`POST /certificates/verify`)
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 sequenceDiagram
     actor U as Cliente
     participant API as HTTP Handler
@@ -109,7 +107,6 @@ sequenceDiagram
 ## Verificação por hash (`GET /certificates/verify?hash=`)
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 sequenceDiagram
     actor U as Cliente
     participant API as HTTP Handler

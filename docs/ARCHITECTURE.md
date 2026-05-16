@@ -9,7 +9,6 @@ EVM, OpenCV) fica atrás de portas declaradas em
 ## Visão de contêineres
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 flowchart LR
     subgraph Externo
         FE["Front-end /<br/>Cliente HTTP"]
@@ -39,7 +38,6 @@ flowchart LR
 ## Visão de componentes
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 flowchart TB
     subgraph cmd["cmd/api"]
         MAIN["main.go<br/>(composition root)"]
@@ -107,7 +105,6 @@ cabeada.
 ## Modelo de dados
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 erDiagram
     CERTIFICATES ||--o{ PHASH_BANDS : "tem 0..N bandas"
     CERTIFICATES {
@@ -138,7 +135,6 @@ reduz o universo antes do re-check Hamming exato de 256 bits.
 ## Integração com a blockchain
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 flowchart LR
     UC["CertifyUseCase"] --> SVC["RPCBlockchainService"]
     SVC -- "POST JSON-RPC<br/>eth_sendTransaction" --> NODE["EVM Node<br/>(Anvil / Sepolia)"]
@@ -163,7 +159,6 @@ Pontos atuais que valem ter em mente:
 ## Deploy local (docker-compose.yml)
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#eef2f7','primaryBorderColor':'#1f2937','primaryTextColor':'#111827','lineColor':'#1f2937','textColor':'#111827','actorBkg':'#eef2f7','actorBorder':'#1f2937','actorTextColor':'#111827','actorLineColor':'#94a3b8','signalColor':'#1f2937','signalTextColor':'#111827','labelBoxBkgColor':'#fef3c7','labelBoxBorderColor':'#1f2937','labelTextColor':'#111827','loopTextColor':'#111827','noteBorderColor':'#b45309','noteBkgColor':'#fef3c7','noteTextColor':'#111827','activationBorderColor':'#1f2937','activationBkgColor':'#d1d5db','sequenceNumberColor':'#ffffff','edgeLabelBackground':'#ffffff'}}}%%
 flowchart LR
     subgraph Host["Host do dev"]
         API_C["api:8080"]
