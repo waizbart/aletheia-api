@@ -31,7 +31,7 @@ Para a visão completa do sistema, ver:
 
 - Docker e Docker Compose v2 (recomendado); ou
 - Go 1.22+, PostgreSQL 15+, OpenCV instalado no host (necessário para
-  o `gocv`), um endpoint JSON-RPC EVM (Anvil/Sepolia) e um S3
+  o `gocv`), um endpoint JSON-RPC EVM (Anvil/Polygon) e um S3
   compatível (S3, MinIO).
 
 ## Subir com Docker (recomendado)

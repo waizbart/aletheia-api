@@ -22,7 +22,7 @@ flowchart LR
     subgraph Infra["Infraestrutura"]
         DB[("PostgreSQL 16<br/>certificates<br/>phash_bands")]
         S3[("S3 / MinIO<br/>bucket aletheia-images")]
-        CHAIN["EVM JSON-RPC<br/>(Anvil local, Sepolia em prod)"]
+        CHAIN["EVM JSON-RPC<br/>(Anvil local, Polygon em prod)"]
         SC["Smart Contract<br/>âncora de hash"]
     end
 
@@ -137,7 +137,7 @@ reduz o universo antes do re-check Hamming exato de 256 bits.
 ```mermaid
 flowchart LR
     UC["CertifyUseCase"] --> SVC["RPCBlockchainService"]
-    SVC -- "POST JSON-RPC<br/>eth_sendTransaction" --> NODE["EVM Node<br/>(Anvil / Sepolia)"]
+    SVC -- "POST JSON-RPC<br/>eth_sendTransaction" --> NODE["EVM Node<br/>(Anvil / Polygon)"]
     NODE -- "minera + inclui em bloco" --> CHAIN[("Blockchain")]
     NODE -. "retorna txHash" .-> SVC
     SVC -. "txHash, blockNum" .-> UC
