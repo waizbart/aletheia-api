@@ -51,8 +51,9 @@ func main() {
 
 	certifyUC := usecase.NewCertifyUseCase(certRepo, chainSvc, extractor, blobStore)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor, blobStore)
+	deleteUC := usecase.NewDeleteUseCase(certRepo, blobStore)
 
-	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC)
+	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC)
 
 	mux := http.NewServeMux()
 	certHandler.RegisterRoutes(mux)

@@ -15,6 +15,7 @@ type mockRepo struct {
 	saveFn                    func(ctx context.Context, cert *domain.Certificate) error
 	findByHashFn              func(ctx context.Context, hash string) (*domain.Certificate, error)
 	findCandidatesByPHashesFn func(ctx context.Context, phashes [][32]byte, maxDistance, topK int) ([]*domain.Certificate, error)
+	deleteFn                  func(ctx context.Context, hash string) error
 }
 
 func (m *mockRepo) Save(ctx context.Context, cert *domain.Certificate) error {
@@ -30,6 +31,13 @@ func (m *mockRepo) FindCandidatesByPHashes(ctx context.Context, phashes [][32]by
 		return nil, nil
 	}
 	return m.findCandidatesByPHashesFn(ctx, phashes, maxDistance, topK)
+}
+
+func (m *mockRepo) Delete(ctx context.Context, hash string) error {
+	if m.deleteFn == nil {
+		return nil
+	}
+	return m.deleteFn(ctx, hash)
 }
 
 type mockBlockchain struct {
@@ -65,8 +73,9 @@ func (m *mockExtractor) Match(ctx context.Context, refSig, candSig *domain.Featu
 }
 
 type mockBlobStore struct {
-	putFn func(ctx context.Context, key string, data []byte) error
-	getFn func(ctx context.Context, key string) ([]byte, error)
+	putFn    func(ctx context.Context, key string, data []byte) error
+	getFn    func(ctx context.Context, key string) ([]byte, error)
+	deleteFn func(ctx context.Context, key string) error
 }
 
 func (m *mockBlobStore) Put(ctx context.Context, key string, data []byte) error {
@@ -81,4 +90,11 @@ func (m *mockBlobStore) Get(ctx context.Context, key string) ([]byte, error) {
 		return []byte("ref-jpeg"), nil
 	}
 	return m.getFn(ctx, key)
+}
+
+func (m *mockBlobStore) Delete(ctx context.Context, key string) error {
+	if m.deleteFn == nil {
+		return nil
+	}
+	return m.deleteFn(ctx, key)
 }

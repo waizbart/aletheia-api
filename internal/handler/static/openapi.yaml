@@ -256,6 +256,44 @@ paths:
                 interno:
                   value: { error: "verify: postgres find by hash: connection refused" }
 
+  /certificates/{hash}:
+    delete:
+      tags: [Certificates]
+      summary: Remove um certificado
+      description: |
+        Apaga o certificado identificado pelo `SHA-256` e a imagem
+        normalizada associada no blob store (S3/MinIO). A imagem é
+        removida antes do registro no banco; como o `DeleteObject` é
+        idempotente, uma nova tentativa converge em caso de falha
+        parcial.
+
+        Responde `204 No Content` em caso de sucesso (sem corpo) e
+        `404 Not Found` quando não há certificado para o hash.
+      operationId: deleteCertificate
+      parameters:
+        - $ref: "#/components/parameters/HashPath"
+      responses:
+        "204":
+          description: Certificado removido. Sem corpo.
+        "404":
+          description: Nenhum certificado para o hash informado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                nao_encontrado:
+                  value: { error: "delete: certificate not found" }
+        "500":
+          description: Erro interno (remoção do blob ou do banco).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                interno:
+                  value: { error: "delete: removing image blob: s3 delete: timeout" }
+
 components:
   parameters:
     RegistrantHeader:
@@ -283,6 +321,15 @@ components:
       schema:
         $ref: "#/components/schemas/Sha256Hex"
       description: SHA-256 do conteúdo, em hex de 64 caracteres.
+      example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+    HashPath:
+      in: path
+      name: hash
+      required: true
+      schema:
+        $ref: "#/components/schemas/Sha256Hex"
+      description: SHA-256 do conteúdo a remover, em hex de 64 caracteres.
       example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
   responses:

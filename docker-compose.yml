@@ -1,12 +1,15 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: aletheia
       POSTGRES_PASSWORD: aletheia
       POSTGRES_DB: aletheia
+    # Bound to localhost only: the API reaches Postgres over the compose
+    # network, so the port stays off the public interface.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
@@ -17,16 +20,19 @@ services:
       retries: 10
 
   anvil:
-    image: ghcr.io/foundry-rs/foundry:latest
+    image: ghcr.io/foundry-rs/foundry:stable
+    restart: unless-stopped
     entrypoint: ["anvil", "--host", "0.0.0.0"]
     ports:
-      - "8545:8545"
+      - "127.0.0.1:8545:8545"
 
   minio:
     image: minio/minio:latest
+    restart: unless-stopped
     command: server /data --console-address ":9001"
+    # S3 API (9000) stays on localhost; only the web console (9001) is public.
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
       - "9001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -54,6 +60,7 @@ services:
 
   api:
     build: .
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:

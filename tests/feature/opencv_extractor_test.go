@@ -3,10 +3,16 @@
 package feature_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"image"
+	"image/png"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/waizbart/aletheia-api/internal/feature"
@@ -41,6 +47,54 @@ var expected = map[string]bool{
 	"aletheia-filter-1.jpg":    false,
 	"aletheia-filter-2.jpg":    false,
 	"aletheia-filter-3.jpg":    false,
+}
+
+func noisePNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewGray(image.Rect(0, 0, w, h))
+	rng := rand.New(rand.NewSource(1))
+	for i := range img.Pix {
+		img.Pix[i] = byte(rng.Intn(256))
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// TestOpenCVExtractor_TinyImageGuard locks in the fix for the SIGSEGV that
+// degenerate uploads triggered inside cgo: images below the ORB minimum must be
+// rejected with a clean error, and images at/above it must run without crashing
+// the test process.
+func TestOpenCVExtractor_TinyImageGuard(t *testing.T) {
+	ext := feature.NewOpenCVExtractor()
+	defer ext.Close()
+	ctx := context.Background()
+
+	// 1x1 is the original crash repro; 62 is just under the threshold.
+	for _, size := range []int{1, 16, 62} {
+		t.Run(fmt.Sprintf("%dpx_rejected", size), func(t *testing.T) {
+			_, _, err := ext.Compute(ctx, noisePNG(t, size, size))
+			if err == nil {
+				t.Fatalf("expected error for %dx%d image, got nil", size, size)
+			}
+			if !strings.Contains(err.Error(), "too small") {
+				t.Fatalf("error = %v, want 'too small'", err)
+			}
+		})
+	}
+
+	// At/above the threshold ORB must not crash. A non-crash outcome is either a
+	// signature or a clean "no features detected" error.
+	for _, size := range []int{63, 80} {
+		t.Run(fmt.Sprintf("%dpx_no_crash", size), func(t *testing.T) {
+			_, _, err := ext.Compute(ctx, noisePNG(t, size, size))
+			if err != nil && !strings.Contains(err.Error(), "no features detected") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
 }
 
 func TestOpenCVExtractor_TestdataMatrix(t *testing.T) {

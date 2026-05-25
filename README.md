@@ -200,6 +200,20 @@ Ambos os endpoints respondem com o mesmo formato:
 { "certified": false, "certificate": null }
 ```
 
+### Remover certificado
+
+```
+DELETE /certificates/<sha256-hex>
+```
+
+Apaga o certificado pelo SHA-256 e a imagem normalizada associada no
+blob store (S3/MinIO). A imagem é removida antes do registro no banco;
+como o `DeleteObject` é idempotente, uma nova tentativa converge em
+caso de falha parcial.
+
+Respostas: `204 No Content` (sem corpo) em caso de sucesso; `404 Not
+Found` quando não há certificado para o hash.
+
 ## Variáveis de ambiente
 
 Todas obrigatórias salvo indicação em contrário. Ver `.env.example`.

@@ -13,3 +13,7 @@ type Certifier interface {
 type Verifier interface {
 	Execute(ctx context.Context, in usecase.VerifyInput) (*usecase.VerifyOutput, error)
 }
+
+type Deleter interface {
+	Execute(ctx context.Context, in usecase.DeleteInput) error
+}

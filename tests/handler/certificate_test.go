@@ -52,8 +52,12 @@ func verifyErr(_ context.Context, _ usecase.VerifyInput) (*usecase.VerifyOutput,
 }
 
 func setupMux(cert *mockCertifier, ver *mockVerifier) *http.ServeMux {
+	return setupMuxFull(cert, ver, &mockDeleter{})
+}
+
+func setupMuxFull(cert *mockCertifier, ver *mockVerifier, del *mockDeleter) *http.ServeMux {
 	mux := http.NewServeMux()
-	h := handler.NewCertificateHandler(cert, ver)
+	h := handler.NewCertificateHandler(cert, ver, del)
 	h.RegisterRoutes(mux)
 	return mux
 }
@@ -246,6 +250,59 @@ func TestHandleVerifyByFile_UseCaseError(t *testing.T) {
 	mux := setupMux(&mockCertifier{}, &mockVerifier{executeFn: verifyErr})
 
 	req := newUploadRequest(t, http.MethodPost, "/certificates/verify", "image/jpeg", []byte("img"))
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleDelete_Success(t *testing.T) {
+	var gotHash string
+	del := &mockDeleter{executeFn: func(_ context.Context, in usecase.DeleteInput) error {
+		gotHash = in.Hash
+		return nil
+	}}
+	mux := setupMuxFull(&mockCertifier{}, &mockVerifier{}, del)
+
+	req := httptest.NewRequest(http.MethodDelete, "/certificates/abc123", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNoContent)
+	}
+	if gotHash != "abc123" {
+		t.Errorf("hash = %q, want abc123", gotHash)
+	}
+	if rr.Body.Len() != 0 {
+		t.Errorf("body = %q, want empty", rr.Body.String())
+	}
+}
+
+func TestHandleDelete_NotFound(t *testing.T) {
+	del := &mockDeleter{executeFn: func(_ context.Context, _ usecase.DeleteInput) error {
+		return fmt.Errorf("delete: %w", domain.ErrNotFound)
+	}}
+	mux := setupMuxFull(&mockCertifier{}, &mockVerifier{}, del)
+
+	req := httptest.NewRequest(http.MethodDelete, "/certificates/unknown", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandleDelete_UseCaseError(t *testing.T) {
+	del := &mockDeleter{executeFn: func(_ context.Context, _ usecase.DeleteInput) error {
+		return fmt.Errorf("something broke")
+	}}
+	mux := setupMuxFull(&mockCertifier{}, &mockVerifier{}, del)
+
+	req := httptest.NewRequest(http.MethodDelete, "/certificates/abc123", nil)
 	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)
 

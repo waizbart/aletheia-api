@@ -155,6 +155,24 @@ func (r *PostgresCertificateRepo) FindByHash(ctx context.Context, contentHash st
 	return cert, nil
 }
 
+// Delete removes the certificate matching contentHash. Associated phash_bands
+// rows are removed by the ON DELETE CASCADE foreign key. Returns
+// domain.ErrNotFound when no row matches.
+func (r *PostgresCertificateRepo) Delete(ctx context.Context, contentHash string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM certificates WHERE content_hash = $1`, contentHash)
+	if err != nil {
+		return fmt.Errorf("postgres delete: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("postgres delete rows affected: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 // FindCandidatesByPHashes resolves the LSH pre-filter: for each rotation
 // variant of the candidate, every band byte becomes one (band_idx, band_value)
 // probe against phash_bands. The set of cert ids that collide on at least one

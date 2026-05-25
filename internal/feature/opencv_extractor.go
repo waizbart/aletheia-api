@@ -17,7 +17,18 @@ import (
 	"github.com/waizbart/aletheia-api/internal/domain"
 )
 
-const keypointBytes = 48
+const (
+	keypointBytes = 48
+
+	orbEdgeThreshold = 31
+	orbPatchSize     = 31
+	// minFeatureDimension is the smallest width/height (px) the ORB pipeline can
+	// process safely. Below 2*edgeThreshold the finest pyramid level has no valid
+	// detection region (and the coarsest levels collapse toward 0), at which
+	// point native OpenCV can read out of bounds and crash the process with a
+	// SIGSEGV. Images smaller than this are rejected before DetectAndCompute.
+	minFeatureDimension = 2*orbEdgeThreshold + 1
+)
 
 type OpenCVExtractor struct{}
 
@@ -41,11 +52,15 @@ func (e *OpenCVExtractor) Compute(_ context.Context, content []byte) (*domain.Fe
 	resized := resizeBGR(bgr, domain.ResizeMax)
 	defer resized.Close()
 
+	if resized.Cols() < minFeatureDimension || resized.Rows() < minFeatureDimension {
+		return nil, nil, fmt.Errorf("image too small for feature extraction: %dx%d (min %d per side)", resized.Cols(), resized.Rows(), minFeatureDimension)
+	}
+
 	gray := gocv.NewMat()
 	defer gray.Close()
 	gocv.CvtColor(resized, &gray, gocv.ColorBGRToGray)
 
-	orb := gocv.NewORBWithParams(domain.OrbFeatures, 1.2, 8, 31, 0, 2, gocv.ORBScoreTypeHarris, 31, 20)
+	orb := gocv.NewORBWithParams(domain.OrbFeatures, 1.2, 8, orbEdgeThreshold, 0, 2, gocv.ORBScoreTypeHarris, orbPatchSize, 20)
 	defer orb.Close()
 
 	mask := gocv.NewMat()
