@@ -10,6 +10,7 @@ type CertificateRepository interface {
 	Save(ctx context.Context, cert *domain.Certificate) error
 	FindByHash(ctx context.Context, contentHash string) (*domain.Certificate, error)
 	FindCandidatesByPHashes(ctx context.Context, phashes [][32]byte, maxDistance, topK int) ([]*domain.Certificate, error)
+	Delete(ctx context.Context, contentHash string) error
 }
 
 type BlockchainService interface {
@@ -31,4 +32,5 @@ type FeatureExtractor interface {
 type ImageBlobStore interface {
 	Put(ctx context.Context, key string, data []byte) error
 	Get(ctx context.Context, key string) ([]byte, error)
+	Delete(ctx context.Context, key string) error
 }

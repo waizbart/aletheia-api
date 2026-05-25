@@ -114,7 +114,8 @@ func setupE2E(t *testing.T) *e2eEnv {
 
 	certifyUC := usecase.NewCertifyUseCase(certRepo, chain, extractor, blobStore)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor, blobStore)
-	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC)
+	deleteUC := usecase.NewDeleteUseCase(certRepo, blobStore)
+	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC)
 
 	mux := http.NewServeMux()
 	certHandler.RegisterRoutes(mux)

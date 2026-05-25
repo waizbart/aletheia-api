@@ -29,6 +29,17 @@ func (m *mockVerifier) Execute(ctx context.Context, in usecase.VerifyInput) (*us
 	return m.executeFn(ctx, in)
 }
 
+type mockDeleter struct {
+	executeFn func(ctx context.Context, in usecase.DeleteInput) error
+}
+
+func (m *mockDeleter) Execute(ctx context.Context, in usecase.DeleteInput) error {
+	if m.executeFn == nil {
+		return nil
+	}
+	return m.executeFn(ctx, in)
+}
+
 func newUploadRequest(t *testing.T, method, target, contentType string, body []byte) *http.Request {
 	t.Helper()
 	var buf bytes.Buffer

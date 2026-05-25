@@ -57,6 +57,17 @@ func (s *S3BlobStore) Put(ctx context.Context, key string, data []byte) error {
 	return nil
 }
 
+func (s *S3BlobStore) Delete(ctx context.Context, key string) error {
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("s3 delete %s: %w", key, err)
+	}
+	return nil
+}
+
 func (s *S3BlobStore) Get(ctx context.Context, key string) ([]byte, error) {
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),

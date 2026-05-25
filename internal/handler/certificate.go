@@ -11,16 +11,18 @@ import (
 type CertificateHandler struct {
 	certify Certifier
 	verify  Verifier
+	delete  Deleter
 }
 
-func NewCertificateHandler(certify Certifier, verify Verifier) *CertificateHandler {
-	return &CertificateHandler{certify: certify, verify: verify}
+func NewCertificateHandler(certify Certifier, verify Verifier, delete Deleter) *CertificateHandler {
+	return &CertificateHandler{certify: certify, verify: verify, delete: delete}
 }
 
 func (h *CertificateHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /certificates", h.handleCertify)
 	mux.HandleFunc("GET /certificates/verify", h.handleVerifyByHash)
 	mux.HandleFunc("POST /certificates/verify", h.handleVerifyByFile)
+	mux.HandleFunc("DELETE /certificates/{hash}", h.handleDelete)
 }
 
 func (h *CertificateHandler) handleCertify(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +62,22 @@ func (h *CertificateHandler) handleVerifyByHash(w http.ResponseWriter, r *http.R
 	}
 
 	writeVerifyResponse(w, out)
+}
+
+func (h *CertificateHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
+	// The {hash} route segment is always non-empty when matched by the mux,
+	// so no emptiness check is needed here; the use case guards it anyway.
+	err := h.delete.Execute(r.Context(), usecase.DeleteInput{Hash: r.PathValue("hash")})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, domain.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *CertificateHandler) handleVerifyByFile(w http.ResponseWriter, r *http.Request) {
