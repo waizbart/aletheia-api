@@ -43,6 +43,8 @@ info:
     url: https://opensource.org/licenses/MIT
 
 servers:
+  - url: /
+    description: Mesma origem em que esta documentação está sendo servida
   - url: http://localhost:8080
     description: Ambiente de desenvolvimento local (docker-compose)
 

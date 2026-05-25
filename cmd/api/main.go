@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -60,7 +61,8 @@ func main() {
 	handler.RegisterDocsRoutes(mux)
 	handler.RegisterHealthRoutes(mux)
 
-	wrapped := handler.LoggingMiddleware(mux)
+	corsOrigins := strings.Split(config.EnvOrDefault("CORS_ALLOWED_ORIGINS", "*"), ",")
+	wrapped := handler.LoggingMiddleware(handler.CORS(corsOrigins)(mux))
 
 	port := config.EnvOrDefault("SERVER_PORT", "8080")
 	addr := fmt.Sprintf(":%s", port)
