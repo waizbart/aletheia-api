@@ -280,6 +280,13 @@ func decodeBGR(content []byte) (gocv.Mat, error) {
 	return bgr, nil
 }
 
+// decodeLAB decodes an image to LAB at the same scale the feature extractor
+// works in (capped to domain.ResizeMax on the long side). The homography used
+// during Match is computed from keypoints in that resized coordinate space, so
+// the candidate LAB MUST be in the same space — otherwise WarpPerspective
+// samples the wrong pixels and the per-cell color residual blows up even when
+// the geometry matches perfectly (observed with high-resolution phone photos
+// re-uploaded via WhatsApp).
 func decodeLAB(content []byte) (gocv.Mat, error) {
 	bgr, err := decodeBGR(content)
 	if err != nil {
@@ -289,8 +296,10 @@ func decodeLAB(content []byte) (gocv.Mat, error) {
 	if bgr.Empty() {
 		return gocv.NewMat(), fmt.Errorf("empty bgr")
 	}
+	resized := resizeBGR(bgr, domain.ResizeMax)
+	defer resized.Close()
 	lab := gocv.NewMat()
-	gocv.CvtColor(bgr, &lab, gocv.ColorBGRToLab)
+	gocv.CvtColor(resized, &lab, gocv.ColorBGRToLab)
 	return lab, nil
 }
 
