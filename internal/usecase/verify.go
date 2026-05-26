@@ -64,22 +64,27 @@ func (uc *VerifyUseCase) Execute(ctx context.Context, in VerifyInput) (*VerifyOu
 
 	phashes := domain.PHash256Variants(content)
 	if len(phashes) == 0 {
+		log.Printf("verify: could not compute pHash (not an image?)")
 		return &VerifyOutput{Certified: false}, nil
 	}
+	log.Printf("verify: computed %d pHash variants", len(phashes))
 
 	candSig, _, err := uc.extractor.Compute(ctx, content)
 	if err != nil {
 		log.Printf("verify: feature extraction failed: %v", err)
 		return &VerifyOutput{Certified: false}, nil
 	}
+	log.Printf("verify: ORB extracted %d descriptor bytes", len(candSig.Descriptors))
 
 	candidates, err := uc.repo.FindCandidatesByPHashes(ctx, phashes, domain.MaxPHashDistance, verifyTopK)
 	if err != nil {
 		return nil, fmt.Errorf("verify: %w", err)
 	}
+	log.Printf("verify: LSH found %d candidates (maxDist=%d)", len(candidates), domain.MaxPHashDistance)
 
 	for _, c := range candidates {
 		if c.Signature == nil || c.ImageBlobKey == "" {
+			log.Printf("verify: candidate %s skipped (no signature or blob)", c.ID)
 			continue
 		}
 		refImage, err := uc.blobs.Get(ctx, c.ImageBlobKey)
@@ -92,6 +97,8 @@ func (uc *VerifyUseCase) Execute(ctx context.Context, in VerifyInput) (*VerifyOu
 			log.Printf("verify: match against %s: %v", c.ID, err)
 			continue
 		}
+		log.Printf("verify: candidate %s → inliers=%d colorMean=%.1f colorMax=%.1f matched=%v",
+			c.ID, decision.Inliers, decision.ColorMean, decision.ColorMax, decision.Matched)
 		if decision.Matched {
 			return &VerifyOutput{Certified: true, Certificate: c}, nil
 		}
