@@ -51,6 +51,8 @@ Endpoints disponíveis:
 - Swagger UI em `http://localhost:8080/docs`
 - Spec OpenAPI em `http://localhost:8080/docs/openapi.yaml`
 - Health em `http://localhost:8080/health`
+- Painel de observabilidade em `http://localhost:8080/observability`
+- Jaeger UI em `http://localhost:16686`
 - Console MinIO em `http://localhost:9001` (usuário/senha
   `minioadmin`)
 - RPC Anvil em `http://localhost:8545`
@@ -113,6 +115,28 @@ A porta vem de `SERVER_PORT` (default `8080`).
 Swagger UI interativo em
 [http://localhost:8080/docs](http://localhost:8080/docs) com o servidor
 rodando. O spec OpenAPI 3.0 bruto fica em `/docs/openapi.yaml`.
+
+## Observabilidade
+
+A API instrumenta cada etapa dos fluxos de certificação e verificação e
+expõe isso de duas formas:
+
+- **Painel ao vivo** em
+  [http://localhost:8080/observability](http://localhost:8080/observability):
+  acompanha em tempo real (via Server-Sent Events) cada etapa do pipeline
+  acendendo — `SHA-256 ➜ pHash ➜ ORB ➜ commitment ➜ blockchain ➜ S3 ➜
+  Postgres` na certificação, e `pHash variants ➜ LSH ➜ comparação de
+  candidatos` na verificação. Mostra os valores reais de cada etapa, a
+  latência por etapa e total, a decisão de verificação (distância de
+  Hamming, inliers ORB, resíduo de cor LAB e o motivo de casar ou não por
+  candidato) e um histórico das últimas requisições.
+- **Spans OpenTelemetry** exportados via OTLP/HTTP para o Jaeger
+  ([http://localhost:16686](http://localhost:16686)). Cada requisição vira
+  um span pai com um span filho por etapa, carregando os mesmos atributos.
+
+O export OTel é opcional: com `OTEL_EXPORTER_OTLP_ENDPOINT` em branco os
+spans viram no-op e a API roda normalmente sem o Jaeger. O painel
+funciona independentemente do OTel.
 
 ## Endpoints
 
@@ -230,6 +254,9 @@ Todas obrigatórias salvo indicação em contrário. Ver `.env.example`.
 | `S3_ACCESS_KEY` | Access key S3 | `minioadmin` |
 | `S3_SECRET_KEY` | Secret key S3 | `minioadmin` |
 | `S3_REGION` | Região S3 (opcional, default `us-east-1`) | `us-east-1` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Endpoint OTLP/HTTP do Jaeger (opcional; em branco desliga o export) | `jaeger:4318` |
+| `OTEL_SERVICE_NAME` | Nome do serviço nos traces (opcional, default `aletheia-api`) | `aletheia-api` |
+| `OBS_RING_CAPACITY` | Traces recentes mantidos em memória para o painel (opcional, default `50`) | `50` |
 
 ## Estrutura do projeto
 
@@ -240,6 +267,7 @@ internal/usecase/     Workflows de aplicação e ports (interfaces)
 internal/handler/     Handlers HTTP, middleware, DTOs, Swagger
 internal/repository/  Adapters PostgreSQL, EVM RPC, S3/MinIO
 internal/feature/     Extrator OpenCV (ORB + JPEG normalizado)
+internal/observability/ Recorder do pipeline, coletor SSE e ponte OpenTelemetry
 internal/config/      Helpers de env
 migrations/           SQL de criação e evolução do schema
 docs/                 Diagramas e visões de arquitetura

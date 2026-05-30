@@ -23,9 +23,33 @@ const (
 	ResizeMax   = 1024
 )
 
+const (
+	// DescriptorSize is the byte length of a single ORB descriptor (256 bits).
+	DescriptorSize = 32
+	// KeypointEncodedSize is the byte length of a single serialized keypoint
+	// (X, Y, Size, Angle, Response as float64 + Octave, ClassID as int32).
+	KeypointEncodedSize = 48
+)
+
 type FeatureSignature struct {
 	Descriptors []byte
 	Keypoints   []byte
+}
+
+// KeypointCount returns the number of ORB keypoints encoded in the signature.
+func (s *FeatureSignature) KeypointCount() int {
+	if s == nil || KeypointEncodedSize == 0 {
+		return 0
+	}
+	return len(s.Keypoints) / KeypointEncodedSize
+}
+
+// DescriptorCount returns the number of ORB descriptors in the signature.
+func (s *FeatureSignature) DescriptorCount() int {
+	if s == nil || DescriptorSize == 0 {
+		return 0
+	}
+	return len(s.Descriptors) / DescriptorSize
 }
 
 type MatchDecision struct {
