@@ -45,6 +45,15 @@ services:
       timeout: 3s
       retries: 10
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"            # Jaeger UI
+      - "127.0.0.1:4318:4318"    # OTLP HTTP receiver
+
   minio-init:
     image: minio/mc:latest
     depends_on:
@@ -74,12 +83,16 @@ services:
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
       S3_REGION: us-east-1
+      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4318
+      OTEL_SERVICE_NAME: aletheia-api
     depends_on:
       postgres:
         condition: service_healthy
       anvil:
         condition: service_started
       minio:
+        condition: service_started
+      jaeger:
         condition: service_started
 
 volumes:

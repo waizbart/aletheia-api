@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aletheia — Observabilidade do Pipeline</title>
+  <link rel="stylesheet" href="/observability/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◈</span>
+      <div>
+        <h1>Aletheia</h1>
+        <p>Observabilidade do pipeline de certificação</p>
+      </div>
+    </div>
+    <div class="conn" id="conn">
+      <span class="dot" id="conn-dot"></span>
+      <span id="conn-label">conectando…</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="live">
+      <div class="live-head">
+        <h2 id="live-title">Aguardando requisição…</h2>
+        <div class="live-meta">
+          <span class="badge" id="live-badge" hidden></span>
+          <span class="total" id="live-total"></span>
+        </div>
+      </div>
+      <p class="hint" id="live-hint">
+        Envie uma imagem para <code>POST /certificates</code> ou
+        <code>POST /certificates/verify</code> e acompanhe cada etapa do
+        processo acender em tempo real.
+      </p>
+      <ol class="pipeline" id="pipeline"></ol>
+    </section>
+
+    <aside class="history">
+      <h2>Histórico</h2>
+      <p class="hint">Últimas requisições processadas.</p>
+      <ul class="history-list" id="history"></ul>
+    </aside>
+  </main>
+
+  <script src="/observability/static/app.js"></script>
+</body>
+</html>
