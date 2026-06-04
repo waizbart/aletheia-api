@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"gocv.io/x/gocv"
+
+	"github.com/waizbart/aletheia-api/internal/testdata"
 )
 
 const (
@@ -58,7 +60,7 @@ func main() {
 
 	testdataDir := "/testdata"
 	if _, err := os.Stat(testdataDir); os.IsNotExist(err) {
-		testdataDir = "../../testdata"
+		testdataDir = testdata.Curated("aletheia")
 	}
 	originalPath := filepath.Join(testdataDir, ORIGINAL_FILE_NAME)
 

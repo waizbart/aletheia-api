@@ -29,6 +29,8 @@ import (
 	"sort"
 
 	"gocv.io/x/gocv"
+
+	"github.com/waizbart/aletheia-api/internal/testdata"
 )
 
 const (
@@ -297,7 +299,7 @@ func decide(r matchResult) string {
 }
 
 func main() {
-	testdataDir := filepath.Join("..", "testdata")
+	testdataDir := testdata.Curated("aletheia")
 	refPath := filepath.Join(testdataDir, OriginalFile)
 
 	orb := gocv.NewORBWithParams(OrbFeatures, 1.2, 8, 31, 0, 2, gocv.ORBScoreTypeHarris, 31, 20)

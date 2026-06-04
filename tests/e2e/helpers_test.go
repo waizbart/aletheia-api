@@ -30,10 +30,11 @@ import (
 	"github.com/waizbart/aletheia-api/internal/feature"
 	"github.com/waizbart/aletheia-api/internal/handler"
 	"github.com/waizbart/aletheia-api/internal/repository"
+	"github.com/waizbart/aletheia-api/internal/testdata"
 	"github.com/waizbart/aletheia-api/internal/usecase"
 )
 
-const testdataDir = "../../lab/hashing/testdata"
+var testdataDir = testdata.Curated("aletheia")
 
 type e2eEnv struct {
 	server   *httptest.Server

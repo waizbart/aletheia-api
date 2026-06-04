@@ -20,9 +20,11 @@ import (
 	"gocv.io/x/gocv"
 
 	"github.com/waizbart/aletheia-api/internal/feature"
+	"github.com/waizbart/aletheia-api/internal/testdata"
 )
 
-const testdataDir = "../../lab/hashing/testdata"
+var testdataDir = testdata.Curated("aletheia")
+
 const referenceFile = "aletheia.jpg"
 
 var expected = map[string]bool{
@@ -217,7 +219,7 @@ func TestOpenCVExtractor_LargeCandidateScale(t *testing.T) {
 // This is a regression bed for the scale-mismatch fix in decodeLAB AND a
 // guard that thresholds stay strict enough to reject filtered/altered copies.
 func TestOpenCVExtractor_RealWorldGlassRail(t *testing.T) {
-	const dir = "testdata/realworld"
+	dir := testdata.Curated("realworld")
 	ctx := context.Background()
 	ext := feature.NewOpenCVExtractor()
 	defer ext.Close()

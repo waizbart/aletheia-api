@@ -2,24 +2,26 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"path/filepath"
-	"strings"
 	"image"
+	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
-	_ "image/gif"
-	"os"
-	"math/bits"
+	"log"
 	"math"
+	"math/bits"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
+
+	"github.com/waizbart/aletheia-api/internal/testdata"
 )
 
 const ORIGINAL_FILE_NAME = "aletheia.jpg"
 const MIN_H_DIST = 2
 
 func main() {
-	testdataDir := filepath.Join("..", "testdata")
+	testdataDir := testdata.Curated("aletheia")
 
 	originalPath := filepath.Join(testdataDir, ORIGINAL_FILE_NAME)
 	originalHash, err := hashFile(originalPath)

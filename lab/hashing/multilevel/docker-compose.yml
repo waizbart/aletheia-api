@@ -11,7 +11,7 @@ services:
       - LD_LIBRARY_PATH=/usr/lib
     volumes:
       - .:/app
-      - ../testdata:/testdata
+      - ../../../testdata/curated/aletheia:/testdata
 
   hasher:
     build:
@@ -23,6 +23,6 @@ services:
       - LD_LIBRARY_PATH=/usr/lib
     volumes:
       - .:/app
-      - ../testdata:/testdata
+      - ../../../testdata/curated/aletheia:/testdata
     depends_on:
       - onnx-worker

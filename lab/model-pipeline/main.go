@@ -828,8 +828,8 @@ func printSummary(results []Result) {
 func main() {
 	verbose := flag.Bool("verbose", false, "saída detalhada")
 	metricsFlag := flag.Bool("metrics", false, "relatório JSON/texto de desempenho")
-	refPath := flag.String("ref", "testdata/aletheia.jpg", "imagem de referência")
-	testDir := flag.String("testdir", "testdata", "diretório de imagens candidatas")
+	refPath := flag.String("ref", "../../testdata/curated/aletheia/aletheia.jpg", "imagem de referência")
+	testDir := flag.String("testdir", "../../testdata/curated/aletheia", "diretório de imagens candidatas")
 	dinoModel := flag.String("dino", "models/dinov2_small.onnx", "ONNX DINOv2 (FP32 ou base para .int8)")
 	rotnetModel := flag.String("rotnet", "models/rotnet_street_view.onnx", "ONNX RotNet")
 	rotManifest := flag.String("rotnet-io", "models/rotnet_io.json", "JSON com nomes input/output do RotNet")
