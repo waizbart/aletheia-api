@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	picsumListURL = "https://picsum.photos/v2/list?page=1&limit=1000"
-	picsumImgURL  = "https://picsum.photos/id/%s/800/600"
-	picsumAttrib  = "Lorem Picsum (https://picsum.photos) — Unsplash License"
+	picsumListPageURL = "https://picsum.photos/v2/list?page=%d&limit=100"
+	picsumImgURL      = "https://picsum.photos/id/%s/800/600"
+	picsumAttrib      = "Lorem Picsum (https://picsum.photos) — Unsplash License"
+	picsumPageSize    = 100
 )
 
 // Picsum is a Source backed by Lorem Picsum (https://picsum.photos).
@@ -110,8 +111,10 @@ func (p *Picsum) download(url string) ([]byte, error) {
 	return nil, fmt.Errorf("picsum: download %s after %d attempts: %w", url, maxRetries, lastErr)
 }
 
+// fetchList retrieves all available Picsum images by paginating through the
+// v2/list endpoint (max 100 per page). Results are persisted in source.lock.json
+// for full reproducibility on re-runs.
 func (p *Picsum) fetchList() ([]picsumEntry, error) {
-	// Try to load from a local lock file first for full reproducibility.
 	lockPath := filepath.Join(p.CacheDir, "source.lock.json")
 	if b, err := os.ReadFile(lockPath); err == nil {
 		var entries []picsumEntry
@@ -120,34 +123,41 @@ func (p *Picsum) fetchList() ([]picsumEntry, error) {
 		}
 	}
 
-	resp, err := p.client.Get(picsumListURL) //nolint:noctx
-	if err != nil {
-		return nil, fmt.Errorf("picsum: fetch list: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("picsum: read list: %w", err)
-	}
-	var entries []picsumEntry
-	if err := json.Unmarshal(body, &entries); err != nil {
-		return nil, fmt.Errorf("picsum: parse list: %w", err)
-	}
-
-	// Validate IDs are numeric (defensive).
-	valid := entries[:0]
-	for _, e := range entries {
-		if _, err := strconv.Atoi(e.ID); err == nil {
-			valid = append(valid, e)
+	var all []picsumEntry
+	for page := 1; ; page++ {
+		url := fmt.Sprintf(picsumListPageURL, page)
+		resp, err := p.client.Get(url) //nolint:noctx
+		if err != nil {
+			return nil, fmt.Errorf("picsum: fetch list page %d: %w", page, err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("picsum: read list page %d: %w", page, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("picsum: list page %d HTTP %d", page, resp.StatusCode)
+		}
+		var page_entries []picsumEntry
+		if err := json.Unmarshal(body, &page_entries); err != nil {
+			return nil, fmt.Errorf("picsum: parse list page %d: %w", page, err)
+		}
+		// Filter to numeric IDs only.
+		for _, e := range page_entries {
+			if _, err := strconv.Atoi(e.ID); err == nil {
+				all = append(all, e)
+			}
+		}
+		// Picsum returns fewer than picsumPageSize entries on the last page.
+		if len(page_entries) < picsumPageSize {
+			break
 		}
 	}
-	entries = valid
 
-	// Persist lock file.
 	if err := os.MkdirAll(p.CacheDir, 0755); err == nil {
-		if b, err := json.MarshalIndent(entries, "", "  "); err == nil {
+		if b, err := json.MarshalIndent(all, "", "  "); err == nil {
 			_ = os.WriteFile(lockPath, b, 0644)
 		}
 	}
-	return entries, nil
+	return all, nil
 }
