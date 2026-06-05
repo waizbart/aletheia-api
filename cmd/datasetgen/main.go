@@ -57,6 +57,12 @@ func main() {
 	if outDir == "" {
 		outDir = td.Generated()
 	}
+	// Always use absolute paths so manifest entries are CWD-independent.
+	if abs, err := filepath.Abs(outDir); err == nil {
+		outDir = abs
+	} else {
+		outDir = td.Generated()
+	}
 
 	count := *countFlag
 	if count == 0 {
@@ -98,18 +104,53 @@ func main() {
 		}
 	}
 
-	type result struct {
-		baseRef  source.Ref
+	// Pre-fetch ALL base images first so we can assign correct cyclic peers.
+	// This is necessary for the different_image transform to use a genuinely
+	// different image as the peer rather than the base itself.
+	type baseData struct {
+		ref      source.Ref
 		basePath string
-		baseB    []byte
-		samples  []manifest.Sample
-		err      error
+		bytes    []byte
+	}
+	allBases := make([]baseData, 0, len(refs))
+	log.Printf("pre-fetching %d base images...", len(refs))
+	for _, ref := range refs {
+		b, ferr := src.Fetch(ref)
+		if ferr != nil {
+			log.Printf("skip base %s: fetch: %v", ref.ID, ferr)
+			continue
+		}
+		ext := mimeExt(ref.MIME)
+		basePath := filepath.Join(baseDir, ref.ID+ext)
+		if werr := os.WriteFile(basePath, b, 0644); werr != nil {
+			log.Printf("skip base %s: write: %v", ref.ID, werr)
+			continue
+		}
+		allBases = append(allBases, baseData{ref: ref, basePath: basePath, bytes: b})
+	}
+	log.Printf("pre-fetched %d/%d bases", len(allBases), len(refs))
+	if len(allBases) == 0 {
+		log.Fatal("no bases available after pre-fetch")
 	}
 
-	jobs := make(chan source.Ref, len(refs))
-	results := make(chan result, len(refs))
-	for _, r := range refs {
-		jobs <- r
+	// Distribute work concurrently, passing the peer bytes explicitly.
+	type job struct {
+		idx  int
+		base baseData
+		peer baseData
+	}
+	type result struct {
+		idx     int
+		baseID  string
+		samples []manifest.Sample
+		err     error
+	}
+
+	jobs := make(chan job, len(allBases))
+	results := make(chan result, len(allBases))
+	for i, b := range allBases {
+		peer := allBases[(i+1)%len(allBases)]
+		jobs <- job{idx: i, base: b, peer: peer}
 	}
 	close(jobs)
 
@@ -126,9 +167,10 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for ref := range jobs {
-				res := processBase(src, ref, entries, baseDir, varDir)
-				results <- res
+			for j := range jobs {
+				samples, jerr := processBase(j.base.ref, j.base.basePath, j.base.bytes,
+					j.peer.bytes, entries, varDir)
+				results <- result{idx: j.idx, baseID: j.base.ref.ID, samples: samples, err: jerr}
 			}
 		}()
 	}
@@ -143,12 +185,12 @@ func main() {
 	for res := range results {
 		done++
 		if res.err != nil {
-			log.Printf("[%d/%d] ERROR %s: %v", done, len(refs), res.baseRef.ID, res.err)
+			log.Printf("[%d/%d] ERROR %s: %v", done, len(allBases), res.baseID, res.err)
 			errCount++
 			continue
 		}
 		allSamples = append(allSamples, res.samples...)
-		log.Printf("[%d/%d] OK %s  variants=%d", done, len(refs), res.baseRef.ID, len(res.samples))
+		log.Printf("[%d/%d] OK %s  variants=%d", done, len(allBases), res.baseID, len(res.samples))
 	}
 
 	commit := toolCommit()
@@ -164,7 +206,7 @@ func main() {
 			Seed:              *seedFlag,
 			DatasetSource:     *srcFlag,
 			SourceAttribution: attrib,
-			BaseCount:         len(refs),
+			BaseCount:         len(allBases),
 			VariantsPerBase:   len(entries),
 			SampleCount:       len(allSamples),
 			Thresholds:        manifest.ActiveThresholds(),
@@ -189,44 +231,16 @@ func main() {
 	}
 }
 
-func processBase(src source.Source, ref source.Ref, entries []transform.Entry, baseDir, varDir string) struct {
-	baseRef  source.Ref
-	basePath string
-	baseB    []byte
-	samples  []manifest.Sample
-	err      error
-} {
-	type res = struct {
-		baseRef  source.Ref
-		basePath string
-		baseB    []byte
-		samples  []manifest.Sample
-		err      error
-	}
-
-	baseB, err := src.Fetch(ref)
-	if err != nil {
-		return res{baseRef: ref, err: fmt.Errorf("fetch: %w", err)}
-	}
-
-	ext := mimeExt(ref.MIME)
-	basePath := filepath.Join(baseDir, ref.ID+ext)
-	if werr := os.WriteFile(basePath, baseB, 0644); werr != nil {
-		return res{baseRef: ref, err: fmt.Errorf("write base: %w", werr)}
-	}
-
+// processBase generates all transform variants for one base image.
+// peerB is the bytes of the NEXT base in cyclic order, used by different_image.
+func processBase(
+	ref source.Ref, basePath string, baseB, peerB []byte,
+	entries []transform.Entry, varDir string,
+) ([]manifest.Sample, error) {
 	vDir := filepath.Join(varDir, ref.ID)
 	if err := os.MkdirAll(vDir, 0755); err != nil {
-		return res{baseRef: ref, err: fmt.Errorf("mkdir variants: %w", err)}
+		return nil, fmt.Errorf("mkdir variants: %w", err)
 	}
-
-	// Peer base for negative controls: cyclic — use the ID hash to pick.
-	// For simplicity, the generator uses the base bytes themselves as peer
-	// for the "different_image" entry; the caller's loop pairs them externally.
-	// Since we run concurrently, use base bytes as a trivially-different peer
-	// (the generator writes the file; real negative-control pairing happens in
-	// the eval step which cycles bases).
-	peerB := baseB // placeholder; overridden per entry below
 
 	var samples []manifest.Sample
 	for _, e := range entries {
@@ -237,9 +251,8 @@ func processBase(src source.Source, ref source.Ref, entries []transform.Entry, b
 
 		outPath := filepath.Join(vDir, e.Name+mimeExt(e.MIMEType))
 
-		// Skip if already generated (resumable).
+		// Resumable: skip if output already exists.
 		if _, serr := os.Stat(outPath); serr == nil {
-			// File exists: reconstruct sample from existing file.
 			if b, rerr := os.ReadFile(outPath); rerr == nil {
 				samples = append(samples, buildSample(ref.ID, basePath, outPath, e, b))
 			}
@@ -257,8 +270,7 @@ func processBase(src source.Source, ref source.Ref, entries []transform.Entry, b
 		}
 		samples = append(samples, buildSample(ref.ID, basePath, outPath, e, varB))
 	}
-
-	return res{baseRef: ref, basePath: basePath, baseB: baseB, samples: samples}
+	return samples, nil
 }
 
 func buildSample(baseID, basePath, outPath string, e transform.Entry, varB []byte) manifest.Sample {

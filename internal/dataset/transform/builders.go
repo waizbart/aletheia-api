@@ -267,6 +267,9 @@ func cropBorder(b []byte, frac float64) ([]byte, error) {
 	return encodeJPEG(clone, 85)
 }
 
+// adjustBrightness shifts only the L channel in LAB space, which avoids
+// corrupting the a/b (colour) channels that would otherwise push the LAB
+// residual above MaxColorMean=8.0 for saturated regions.
 func adjustBrightness(b []byte, pct int) ([]byte, error) {
 	m, err := decodeBGR(b)
 	if err != nil {
@@ -274,13 +277,32 @@ func adjustBrightness(b []byte, pct int) ([]byte, error) {
 	}
 	defer m.Close()
 
-	delta := float64(pct) / 100.0 * 255.0
-	dst := gocv.NewMat()
-	defer dst.Close()
-	m.ConvertToWithParams(&dst, gocv.MatTypeCV32F, 1.0, delta)
+	// LAB L is in [0,100]; shift by pct of that range.
+	deltaL := float32(pct)
+
+	lab := gocv.NewMat()
+	defer lab.Close()
+	gocv.CvtColor(m, &lab, gocv.ColorBGRToLab)
+
+	channels := gocv.Split(lab)
+	// channels[0] = L (0–255 in OpenCV's 8-bit LAB encoding, maps to 0–100).
+	// A 1% shift of 100 ≈ 2.55 units in the [0,255] encoded range.
+	shift := deltaL / 100.0 * 255.0
+	newL := gocv.NewMat()
+	channels[0].ConvertToWithParams(&newL, gocv.MatTypeCV8U, 1.0, shift)
+	channels[0].Close()
+	channels[0] = newL
+
+	labOut := gocv.NewMat()
+	defer labOut.Close()
+	gocv.Merge(channels, &labOut)
+	for _, c := range channels {
+		c.Close()
+	}
+
 	out := gocv.NewMat()
 	defer out.Close()
-	dst.ConvertTo(&out, gocv.MatTypeCV8UC3)
+	gocv.CvtColor(labOut, &out, gocv.ColorLabToBGR)
 	return encodeJPEG(out, 85)
 }
 
@@ -293,8 +315,8 @@ func addNoise(b []byte, sigma float64) ([]byte, error) {
 
 	noise := gocv.NewMatWithSize(m.Rows(), m.Cols(), gocv.MatTypeCV32FC3)
 	defer noise.Close()
-	// Fill with Gaussian noise using randn.
-	gocv.Randn(&noise, gocv.NewScalar(0, 0, 0, 0), gocv.NewScalar(sigma, sigma, sigma, 0))
+	// Fill with Gaussian noise using RandN.
+	gocv.RandN(&noise, gocv.NewScalar(0, 0, 0, 0), gocv.NewScalar(sigma, sigma, sigma, 0))
 
 	f := gocv.NewMat()
 	defer f.Close()
