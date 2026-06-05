@@ -11,7 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/waizbart/aletheia-api/internal/dataset/manifest"
@@ -127,35 +129,73 @@ func TestE2E_GeneratedDataset_Matrix(t *testing.T) {
 	}
 	t.Logf("certified %d/%d bases (%d failed)", len(certifiedHash), len(bases), certifyFailed)
 
-	// --- Phase 2: verify all variants -----------------------------------------
+	// --- Phase 2: concurrent verify of all variants ---------------------------
+
+	verifyWorkers := 8
+	if v := os.Getenv("DATASET_E2E_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			verifyWorkers = n
+		}
+	}
+	t.Logf("verifying %d samples with %d workers", len(m.Samples), verifyWorkers)
+
+	type verifyJob struct {
+		sample   manifest.Sample
+		baseHash string
+	}
+	type verifyRes struct {
+		sample         manifest.Sample
+		predictedMatch bool
+		statusCode     int
+		certified      bool
+	}
+
+	jobsCh := make(chan verifyJob, len(m.Samples))
+	resultsCh := make(chan verifyRes, len(m.Samples))
+
+	for _, s := range m.Samples {
+		if bh, ok := certifiedHash[s.BaseImageID]; ok {
+			jobsCh <- verifyJob{sample: s, baseHash: bh}
+		}
+	}
+	close(jobsCh)
+
+	var vwg sync.WaitGroup
+	for i := 0; i < verifyWorkers; i++ {
+		vwg.Add(1)
+		go func() {
+			defer vwg.Done()
+			for j := range jobsCh {
+				img, rerr := os.ReadFile(j.sample.OutputPath)
+				if rerr != nil {
+					continue
+				}
+				status, body := postVerifyFile(t, env,
+					filepath.Base(j.sample.OutputPath), j.sample.MIME, img)
+				var vr verifyResp
+				_ = json.Unmarshal(body, &vr)
+				predictedMatch := status == http.StatusOK &&
+					vr.Certified &&
+					vr.Certificate != nil &&
+					vr.Certificate.ContentHash == j.baseHash
+				resultsCh <- verifyRes{
+					sample:         j.sample,
+					predictedMatch: predictedMatch,
+					statusCode:     status,
+					certified:      vr.Certified,
+				}
+			}
+		}()
+	}
+	go func() { vwg.Wait(); close(resultsCh) }()
 
 	cells := make(map[string]*familyCell)
-
 	var totalTP, totalFP, totalTN, totalFN int
 	var highTP, highFP, highTN, highFN int
 
-	for _, s := range m.Samples {
-		baseHash, ok := certifiedHash[s.BaseImageID]
-		if !ok {
-			continue // base wasn't certified, skip
-		}
-
-		varImg, rerr := os.ReadFile(s.OutputPath)
-		if rerr != nil {
-			t.Logf("skip %s: read variant: %v", s.ID, rerr)
-			continue
-		}
-
-		status, body := postVerifyFile(t, env, filepath.Base(s.OutputPath), s.MIME, varImg)
-
-		// predicted = the API returned a certificate that belongs to THIS base.
-		var vr verifyResp
-		_ = json.Unmarshal(body, &vr)
-		predictedMatch := status == http.StatusOK &&
-			vr.Certified &&
-			vr.Certificate != nil &&
-			vr.Certificate.ContentHash == baseHash
-
+	for res := range resultsCh {
+		s := res.sample
+		predictedMatch := res.predictedMatch
 		correct := predictedMatch == s.ExpectedMatch
 
 		c := cells[s.TransformFamily]
@@ -166,38 +206,30 @@ func TestE2E_GeneratedDataset_Matrix(t *testing.T) {
 
 		if s.ExpectedMatch {
 			if predictedMatch {
-				c.tp++
-				totalTP++
+				c.tp++; totalTP++
 			} else {
-				c.fn++
-				totalFN++
+				c.fn++; totalFN++
 			}
 		} else {
 			if predictedMatch {
-				c.fp++
-				totalFP++
+				c.fp++; totalFP++
 			} else {
-				c.tn++
-				totalTN++
+				c.tn++; totalTN++
 			}
 		}
 
 		if s.Confidence == string(transform.ConfidenceHigh) {
 			if s.ExpectedMatch {
 				if predictedMatch {
-					c.highTP++
-					highTP++
+					c.highTP++; highTP++
 				} else {
-					c.highFN++
-					highFN++
+					c.highFN++; highFN++
 				}
 			} else {
 				if predictedMatch {
-					c.highFP++
-					highFP++
+					c.highFP++; highFP++
 				} else {
-					c.highTN++
-					highTN++
+					c.highTN++; highTN++
 				}
 			}
 		} else {
@@ -214,7 +246,8 @@ func TestE2E_GeneratedDataset_Matrix(t *testing.T) {
 				pred = "no-match"
 			}
 			c.firstWrongID = s.ID
-			c.firstWrongInfo = fmt.Sprintf("want=%s got=%s status=%d certified=%v", exp, pred, status, vr.Certified)
+			c.firstWrongInfo = fmt.Sprintf("want=%s got=%s status=%d certified=%v",
+				exp, pred, res.statusCode, res.certified)
 		}
 	}
 
