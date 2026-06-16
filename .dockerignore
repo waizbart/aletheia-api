@@ -6,5 +6,7 @@
 *.test
 *.out
 coverage.*
+testdata/generated/*
+!testdata/generated/.gitkeep
 README.md
 docker-compose.yml

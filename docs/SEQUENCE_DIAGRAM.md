@@ -85,7 +85,7 @@ sequenceDiagram
     UC->>CV: Compute(content)
     CV-->>UC: candSig
 
-    UC->>DB: FindCandidatesByPHashes(phashes, maxDist, topK=20)
+    UC->>DB: FindCandidatesByPHashes(phashes, maxDist, topK=64)
     Note over DB: LSH prefilter via UNNEST(band_idx, band_value)<br/>JOIN phash_bands + Hamming-256 ≤ maxDist
     DB-->>UC: candidatos ordenados por distância
 

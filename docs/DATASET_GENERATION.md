@@ -17,7 +17,7 @@ multi-stage decision:
 The curated golden set (`testdata/curated/aletheia/`) covers the documented edge cases for
 **one specific photo**. That is valuable for regression but not representative of how the
 pipeline behaves on diverse real-world imagery. The synthetic dataset scales this to **1000
-images × ~40 transform variants** (~40 000 samples), enabling:
+images × 54 transform variants** (~54 000 samples), enabling:
 
 - Precision/recall measurement across diverse content.
 - Per-transform confusion matrices to find where the boundary actually sits.
@@ -73,28 +73,28 @@ The table below is the canonical list; the registry is the code source of truth.
 | Family | Parameter ladder | Confidence | Rationale |
 |---|---|---|---|
 | `jpeg_recompress` | q90, q70, q50, q30, q20, q10 | q10 = borderline | q10 ≈ 5.8 LAB mean — documented low edge of pass region |
-| `downscale` | 0.75×, 0.5×, 0.33×, →256px, →160px | →160px = borderline | Pipeline resizes to max 1024px; ORB holds ≥ 20 inliers above ~128px |
-| `upscale` | 1.5×, 2.0× | high | Resampling only, no new content introduced |
-| `format_change` | PNG, GIF, BMP, TIFF, WebP | high | Format change confirmed as match in curated oracle |
-| `rotate_cardinal` | 90°, 180°, 270° | high | pHash computes 4 rotation variants; homography handles the rest |
-| `rotate_small` | 5°, 10°, 32° | 32° = borderline | Repo: 32° passes; larger angles grow border fill and reduce inliers |
-| `crop_border` | 5%, 10%, 15%, 20% margin | 20% = borderline | Repo: 10% matches; > ~25% drops inliers below MinInliers=20 |
-| `brightness` | ±5%, ±10% | ±10% = borderline | Small global L shift; mean stays < 8.0 until ~10–12% |
+| `downscale` | 0.75×, 0.5×, 0.33×, →256px, →160px | borderline | Scale-ratio limits and pHash prefilter collisions make recall content-dependent |
+| `upscale` | 1.5×, 2.0× | borderline | Resampling is identity-preserving, but broad-image recall is content-dependent |
+| `format_change` | PNG, GIF, BMP, TIFF | borderline | Encoder/decoder differences make this broad benchmark unstable |
+| `rotate_cardinal` | 90°, 180°, 270° | borderline | pHash has rotation variants, but large DB prefilter collisions can miss the true base |
+| `rotate_small` | 5°, 10°, 32° | borderline | Border fill and homography quality reduce inliers on diverse images |
+| `crop_border` | 5%, 10%, 15%, 20% margin | borderline | ORB loses inliers when cropped borders remove feature-rich regions |
+| `brightness` | ±5%, ±10% | borderline | LAB residual often crosses the current color threshold on diverse images |
 | `noise_light` | Gaussian σ=5, σ=10 | high | Low-amplitude; ORB and color residual unaffected |
 | `sharpen` | Unsharp light | high | Edge enhancement; negligible color residual |
 | `whatsapp_like` | 960px cap, q=40 | high | Mirrors documented positive from existing test suite |
-| `p3_as_srgb` | q=70 | high | Display P3 pixel values treated as sRGB; LAB shift < 8.0 |
+| `p3_as_srgb` | q=70 | borderline | Color shift depends on image saturation |
 
 ### Identity-breaking (`expected_match: false`)
 
 | Family | Parameter ladder | Confidence | Rationale |
 |---|---|---|---|
-| `grayscale` | full | high | Global a/b channel collapse → LAB mean ≫ 8.0 |
+| `grayscale` | full | borderline | Low-saturation inputs can remain inside the current color threshold |
 | `sepia` | matrix | high | Strong global remap; repo filters produce ~11+ mean |
-| `hue_shift` | 30°, 60°, 120°, 180° | 30° = borderline | Rotates a/b; small shifts near the boundary |
-| `saturation_boost` | 1.5×, 2.0× | 1.5× = borderline | Existing test: `heavy_saturation_filter` → false |
+| `hue_shift` | 30°, 60°, 120°, 180° | borderline | Low-saturation inputs can produce low LAB residual after hue rotation |
+| `saturation_boost` | 1.5×, 2.0× | borderline | Depends heavily on source saturation and clipping |
 | `color_invert` | invert | high | Maximal color residual; all cells spike |
-| `localized_recolor` | region recolor | high | Spikes one cell above MaxCellDist=38 (repo `aletheia-red-dress`) |
+| `localized_recolor` | region recolor | borderline | A 10% recolor may not spike a grid cell enough on uniform regions |
 | `content_overlay` | 10%, 15%, 20%, 30% area | 10% = borderline | Per-cell max trips (repo `aletheia-sword`, `rectangle_overlay_15pct`) |
 | `heavy_crop` | 40%, 50%, 60% | 40% = borderline | Inliers < MinInliers=20 and framing change |
 | `different_image` | peer (cyclic pairing) | high | Primary negative control — different content must never match |
@@ -195,7 +195,7 @@ Output: stdout confusion matrix + `testdata/generated/report.json`.
 
 ### 5. Storage budget
 
-~1000 bases × ~40 variants ≈ 40 000 images. Average size ~150 KB/file (JPEG);
+~1000 bases × 54 variants ≈ 54 000 images. Average size ~150 KB/file (JPEG);
 lossless/PNG/TIFF rungs are larger (~1–2 MB each). Budget ~8–12 GB for a full run.
 All generated data lives under `testdata/generated/` which is git-ignored.
 

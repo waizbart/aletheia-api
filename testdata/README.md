@@ -79,29 +79,23 @@ See `internal/dataset/transform/registry.go` for the full canonical list. Summar
 |---|---|---|---|
 | jpeg_recompress q90–q20 | true | high | |
 | jpeg_recompress q10 | true | borderline | ≈5.8 LAB mean, near low edge |
-| downscale 0.75–0.33 | true | high | |
-| downscale →160px | true | borderline | near min-feature threshold |
-| upscale 1.5x–2x | true | high | |
-| format_change png/gif/bmp/tiff/webp | true | high | |
-| rotate_cardinal 90/180/270° | true | high | pHash covers all four rotations |
-| rotate_small 5/10° | true | high | |
-| rotate_small 32° | true | borderline | border fill grows with angle |
-| crop_border 5/10/15% | true | high | |
-| crop_border 20% | true | borderline | >25% starts dropping inliers |
-| brightness ±5% | true | high | |
-| brightness ±10% | true | borderline | near 8.0 LAB mean boundary |
+| downscale 0.75–0.33, →256px, →160px | true | borderline | scale-ratio and prefilter recall are content-dependent |
+| upscale 1.5x–2x | true | borderline | resampling only, but broad-image recall varies |
+| format_change png/gif/bmp/tiff | true | borderline | encoder/decoder differences vary by image |
+| rotate_cardinal 90/180/270° | true | borderline | pHash rotation variants help, but large DB prefilter can miss |
+| rotate_small 5/10/32° | true | borderline | border fill reduces inliers |
+| crop_border 5/10/15/20% | true | borderline | crops can remove feature-rich regions |
+| brightness ±5/±10% | true | borderline | LAB residual often crosses current threshold |
 | noise_light σ5/σ10 | true | high | |
 | sharpen light | true | high | |
 | whatsapp_like 960px q40 | true | high | |
-| p3_as_srgb q70 | true | high | |
-| grayscale | false | high | global a/b collapse |
+| p3_as_srgb q70 | true | borderline | depends on source saturation |
+| grayscale | false | borderline | low-saturation inputs can stay within threshold |
 | sepia | false | high | |
-| hue_shift 60/120/180° | false | high | |
-| hue_shift 30° | false | borderline | |
-| saturation_boost 2x | false | high | |
-| saturation_boost 1.5x | false | borderline | |
+| hue_shift 30/60/120/180° | false | borderline | low-saturation inputs can stay within threshold |
+| saturation_boost 1.5x/2x | false | borderline | depends on source saturation and clipping |
 | color_invert | false | high | |
-| localized_recolor | false | high | spikes a cell >38 |
+| localized_recolor | false | borderline | 10% recolor may not spike a grid cell enough |
 | content_overlay 15/20/30% | false | high | |
 | content_overlay 10% | false | borderline | |
 | heavy_crop 50/60% | false | high | |

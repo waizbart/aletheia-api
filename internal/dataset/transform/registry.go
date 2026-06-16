@@ -89,7 +89,7 @@ func Registry() []Entry {
 			"Format change to TIFF: borderline on diverse images"),
 
 		// Cardinal rotation — borderline: empirically 46% pass on 100 Picsum images.
-		// pHash prefilter collision risk grows with database size (verifyTopK=20
+		// pHash prefilter collision risk grows with database size (verifyTopK=64
 		// may miss the correct certificate when many similar images are in the DB).
 		rotateEntry("90", 90, true, ConfidenceBorderline,
 			"Rotate 90°: borderline — pHash prefilter collision risk in large DBs (empirical ~46%)"),

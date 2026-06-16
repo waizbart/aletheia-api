@@ -16,11 +16,25 @@ const (
 	// moves, but a few cells spike. Tightly tuned against the curated matrix
 	// (aletheia-changed-* sit at 39-181, aletheia-rotated-* peak at 37).
 	MaxCellDist = 38.0
-	MinCoverage = 0.9
-	GridSize    = 128
-	OrbFeatures = 2000
-	LoweRatio   = 0.75
-	ResizeMax   = 1024
+	// MinAreaCoverage is the minimum fraction of the reference image area the
+	// matched candidate must cover (via the RANSAC homography, measured as the
+	// share of grid cells the warped candidate fills) for a positive match.
+	// Without it, an identity-breaking heavy crop passes every inlier and colour
+	// check: the surviving region is pixel-identical to the reference, so the
+	// per-cell residual over the *covered* cells is ~0. Coverage is essentially
+	// the area ratio of the crop and is independent of image content, so the gate
+	// is a clean geometric separator. Measured values (see TestOpenCVExtractor_
+	// CoverageGate): crop_border 5/10/15% → 0.79/0.64/0.48; crop_border_20% and
+	// heavy_crop_40% → 0.35 (these two rungs are the SAME pixel-identical image —
+	// a 36%-area crop — despite opposite taxonomy labels). 0.42 keeps mild border
+	// crops and rejects any crop discarding >~60% of the frame. Full-frame edits
+	// (jpeg/noise/scale/rotation) sit near 1.0 and are unaffected.
+	MinAreaCoverage = 0.42
+	MinCoverage     = 0.9
+	GridSize        = 128
+	OrbFeatures     = 2000
+	LoweRatio       = 0.75
+	ResizeMax       = 1024
 )
 
 const (
@@ -58,8 +72,15 @@ type MatchDecision struct {
 	ColorMean float64
 	ColorMax  float64
 	Cells     int
+	// Coverage is the fraction of the reference grid (GridSize²) the warped
+	// candidate fills. 1.0 means the candidate spans the whole reference; a crop
+	// that discards 40% of the frame lands near 0.6.
+	Coverage float64
 }
 
-func Decide(inliers int, colorMean, colorMax float64) bool {
-	return inliers >= MinInliers && colorMean <= MaxColorMean && colorMax <= MaxCellDist
+func Decide(inliers int, colorMean, colorMax, coverage float64) bool {
+	return inliers >= MinInliers &&
+		colorMean <= MaxColorMean &&
+		colorMax <= MaxCellDist &&
+		coverage >= MinAreaCoverage
 }

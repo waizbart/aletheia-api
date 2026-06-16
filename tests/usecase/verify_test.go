@@ -113,8 +113,8 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 					if maxDist != domain.MaxPHashDistance {
 						t.Fatalf("maxDist = %d, want %d", maxDist, domain.MaxPHashDistance)
 					}
-					if topK != 20 {
-						t.Fatalf("topK = %d, want 20", topK)
+					if topK != 64 {
+						t.Fatalf("topK = %d, want 64", topK)
 					}
 					return []*domain.Certificate{{
 						ID:           "cert-1",

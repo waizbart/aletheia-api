@@ -1,0 +1,1 @@
+- [Dataset crop label contradiction](dataset-crop-label-contradiction.md) — crop_border_20pct == heavy_crop_40pct, labeled oppositely; coverage gate resolves it

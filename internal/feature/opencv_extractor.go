@@ -11,6 +11,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
+	"sort"
 
 	"gocv.io/x/gocv"
 
@@ -180,23 +181,35 @@ func matchPair(refKp []gocv.KeyPoint, refDesc gocv.Mat, refLab gocv.Mat, candKp 
 		}
 	}
 
-	mean, max, cells := colorResidual(refLab, candLab, H)
+	mean, max, cells, coverage := colorResidual(refLab, candLab, H)
 	res.Inliers = inliers
 	res.ColorMean = mean
 	res.ColorMax = max
 	res.Cells = cells
-	res.Matched = domain.Decide(inliers, mean, max)
+	res.Coverage = coverage
+	res.Matched = domain.Decide(inliers, mean, max, coverage)
 	return res
 }
 
-func colorResidual(refLab, candLab, H gocv.Mat) (mean, max float64, cells int) {
+// colorResidual warps the candidate back into the reference frame and measures,
+// per grid cell, the LAB distance to the reference. It returns the mean and max
+// per-cell distance, the number of covered cells, and the coverage fraction
+// (covered cells / total grid cells).
+//
+// A uniform brightness/exposure shift moves every cell's L channel by roughly
+// the same amount — an identity-preserving edit our taxonomy labels as a match.
+// To stay robust to it, the global luminance offset (median ΔL over covered
+// cells) is subtracted before computing each cell's distance. Chroma (a/b) is
+// left untouched, so global colour filters (sepia, hue, saturation) and
+// localized edits (overlays, recolours) still register their full residual.
+func colorResidual(refLab, candLab, H gocv.Mat) (mean, max float64, cells int, coverage float64) {
 	if H.Empty() {
-		return math.Inf(1), math.Inf(1), 0
+		return math.Inf(1), math.Inf(1), 0, 0
 	}
 	Hinv := gocv.NewMat()
 	defer Hinv.Close()
 	if det := gocv.Invert(H, &Hinv, 0); det == 0 {
-		return math.Inf(1), math.Inf(1), 0
+		return math.Inf(1), math.Inf(1), 0, 0
 	}
 
 	rh, rw := refLab.Rows(), refLab.Cols()
@@ -213,10 +226,10 @@ func colorResidual(refLab, candLab, H gocv.Mat) (mean, max float64, cells int) {
 	gocv.WarpPerspectiveWithParams(ones, &mask, Hinv, image.Point{X: rw, Y: rh},
 		gocv.InterpolationNearestNeighbor, gocv.BorderConstant, color.RGBA{0, 0, 0, 0})
 
-	total := 0.0
-	maxD := 0.0
-	count := 0
 	grid := domain.GridSize
+	type cellDelta struct{ dl, da, db float64 }
+	deltas := make([]cellDelta, 0, grid*grid)
+	dls := make([]float64, 0, grid*grid)
 	for gy := 0; gy < grid; gy++ {
 		for gx := 0; gx < grid; gx++ {
 			x0 := rw * gx / grid
@@ -226,9 +239,9 @@ func colorResidual(refLab, candLab, H gocv.Mat) (mean, max float64, cells int) {
 			rect := image.Rect(x0, y0, x1, y1)
 
 			mRegion := mask.Region(rect)
-			coverage := mRegion.Mean().Val1 / 255.0
+			cov := mRegion.Mean().Val1 / 255.0
 			mRegion.Close()
-			if coverage < domain.MinCoverage {
+			if cov < domain.MinCoverage {
 				continue
 			}
 
@@ -239,21 +252,44 @@ func colorResidual(refLab, candLab, H gocv.Mat) (mean, max float64, cells int) {
 			rRegion.Close()
 			cRegion.Close()
 
-			dl := rs.Val1 - cs.Val1
-			da := rs.Val2 - cs.Val2
-			db := rs.Val3 - cs.Val3
-			d := math.Sqrt(dl*dl + da*da + db*db)
-			total += d
-			if d > maxD {
-				maxD = d
-			}
-			count++
+			d := cellDelta{dl: rs.Val1 - cs.Val1, da: rs.Val2 - cs.Val2, db: rs.Val3 - cs.Val3}
+			deltas = append(deltas, d)
+			dls = append(dls, d.dl)
 		}
 	}
+	count := len(deltas)
 	if count == 0 {
-		return math.Inf(1), math.Inf(1), 0
+		return math.Inf(1), math.Inf(1), 0, 0
 	}
-	return total / float64(count), maxD, count
+
+	// Neutralize the global luminance offset (uniform exposure/brightness shift).
+	lOff := medianFloat(dls)
+
+	total := 0.0
+	maxD := 0.0
+	for _, dc := range deltas {
+		dl := dc.dl - lOff
+		d := math.Sqrt(dl*dl + dc.da*dc.da + dc.db*dc.db)
+		total += d
+		if d > maxD {
+			maxD = d
+		}
+	}
+	coverage = float64(count) / float64(grid*grid)
+	return total / float64(count), maxD, count, coverage
+}
+
+// medianFloat returns the median of xs. xs is sorted in place.
+func medianFloat(xs []float64) float64 {
+	n := len(xs)
+	if n == 0 {
+		return 0
+	}
+	sort.Float64s(xs)
+	if n%2 == 1 {
+		return xs[n/2]
+	}
+	return (xs[n/2-1] + xs[n/2]) / 2
 }
 
 func decodeBGR(content []byte) (gocv.Mat, error) {

@@ -76,15 +76,7 @@ func runManifestEval(t *testing.T, manifestPath string) {
 	}
 	t.Logf("loaded %d unique bases", len(bases))
 
-	type cell struct {
-		family        string
-		pass          int
-		fail          int
-		highPass      int
-		highFail      int
-		borderlineLog []string
-	}
-	cells := make(map[string]*cell)
+	cells := make(map[string]*manifestCell)
 	var tp, fp, tn, fn int
 	var tpH, fpH, tnH, fnH int
 
@@ -111,7 +103,7 @@ func runManifestEval(t *testing.T, manifestPath string) {
 
 		c := cells[s.TransformFamily]
 		if c == nil {
-			c = &cell{family: s.TransformFamily}
+			c = &manifestCell{family: s.TransformFamily}
 			cells[s.TransformFamily] = c
 		}
 		if correct {
@@ -406,16 +398,19 @@ type matrixReport struct {
 	Families  []familyReport `json:"families"`
 }
 
+// manifestCell accumulates per-family pass/fail tallies for the manifest eval.
+type manifestCell struct {
+	family        string
+	pass          int
+	fail          int
+	highPass      int
+	highFail      int
+	borderlineLog []string
+}
+
 func writeReport(t *testing.T,
 	path string,
-	cells map[string]*struct {
-		family        string
-		pass          int
-		fail          int
-		highPass      int
-		highFail      int
-		borderlineLog []string
-	},
+	cells map[string]*manifestCell,
 	tp, fp, tn, fn, tpH, fpH, tnH, fnH int,
 	precision, recall, f1 float64,
 ) {
