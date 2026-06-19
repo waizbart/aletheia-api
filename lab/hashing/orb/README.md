@@ -77,7 +77,7 @@ Warpar o candidato para a referência (em vez de comparar célula a célula via 
 
 - Converte referência e candidato warped para espaço **LAB** (separa luminância de cromaticidade — a comparação fica naturalmente perceptual).
 - Divide a referência em grade **128×128** (`GridSize = 128`; ~8×8 pixels por célula para uma imagem de 1024 px no lado maior).
-- Para cada célula com cobertura ≥ 90% (`MinCoverage = 0.9`), calcula a distância euclidiana LAB entre a média da célula na referência e a média da mesma célula no candidato warped.
+- Para cada célula com cobertura ≥ 90% (`MinCellMaskCoverage = 0.9`), calcula a distância euclidiana LAB entre a média da célula na referência e a média da mesma célula no candidato warped.
 - Retorna três agregados:
   - `mean`: média das distâncias sobre células válidas.
   - `max`: maior distância de qualquer célula individual.
@@ -194,7 +194,7 @@ Trade-off: mais células = mais trabalho (mas O(pixels) é constante — só o n
 | aletheia-filter-3.jpg | mismatch | mismatch | 1160 | 19.48 | 49.49 |
 | aletheia.gif | match | match | 1782 | 1.17 | 9.33 |
 
-25/25 com `MinInliers=20`, `MaxColorDist=12.0`, `MaxCellDist=38.0`, `MinCoverage=0.9`.
+25/25 com `MinInliers=20`, `MaxColorDist=12.0`, `MaxCellDist=38.0`, `MinCellMaskCoverage=0.9`.
 
 ### Bug de decodificação do GIF (corrigido)
 

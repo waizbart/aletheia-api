@@ -81,8 +81,8 @@ func Registry() []Entry {
 		// implementations), TIFF encoder varies; empirical 49.5% pass.
 		formatEntry("png", "image/png", true, ConfidenceBorderline,
 			"Format change to PNG: borderline on diverse images (empirical ~50%)"),
-		formatEntry("gif", "image/gif", true, ConfidenceBorderline,
-			"Format change to GIF: encoded as PNG internally; borderline"),
+		formatEntry("gif", "image/png", true, ConfidenceBorderline,
+			"Format change requested as GIF but encoded as PNG internally; borderline"),
 		formatEntry("bmp", "image/bmp", true, ConfidenceBorderline,
 			"Format change to BMP: borderline on diverse images"),
 		formatEntry("tiff", "image/tiff", true, ConfidenceBorderline,
@@ -114,8 +114,8 @@ func Registry() []Entry {
 			"Crop 10%: borderline on diverse images"),
 		cropEntry("15pct", 0.15, true, ConfidenceBorderline,
 			"Crop 15%: borderline on diverse images"),
-		cropEntry("20pct", 0.20, true, ConfidenceBorderline,
-			"Crop 20%: near boundary; >~25% starts dropping inliers below MinInliers=20"),
+		cropEntry("20pct", 0.20, false, ConfidenceBorderline,
+			"Crop 20%: coverage-gate reject side; same practical coverage class as heavy_crop_40pct"),
 
 		// Brightness — borderline: empirically 0.5% pass; LAB-space L-only shift
 		// may still produce colour residual above MaxColorMean=8.0 on some images.

@@ -52,7 +52,10 @@ func TestE2E_GeneratedDataset_Matrix(t *testing.T) {
 	// Manifest paths may have been written with a different absolute prefix
 	// (e.g. /work/... inside Docker vs /home/.../aletheia-api/... on the host).
 	// Remap them: replace any non-existent prefix with the repo root.
-	root, _ := testdatapkg.Root()
+	root, err := testdatapkg.Root()
+	if err != nil {
+		t.Fatalf("testdata root: %v", err)
+	}
 	manifestDir := filepath.Dir(manifestPath)
 	rebase := func(p string) string {
 		if p == "" {
@@ -116,7 +119,10 @@ func TestE2E_GeneratedDataset_Matrix(t *testing.T) {
 		switch status {
 		case http.StatusCreated:
 			var cr certResp
-			if jerr := json.Unmarshal(body, &cr); jerr == nil {
+			if jerr := json.Unmarshal(body, &cr); jerr != nil {
+				t.Logf("certify %s: decode response: %v", b.id, jerr)
+				certifyFailed++
+			} else {
 				certifiedHash[b.id] = cr.ContentHash
 			}
 		case http.StatusConflict:
@@ -129,6 +135,9 @@ func TestE2E_GeneratedDataset_Matrix(t *testing.T) {
 		}
 	}
 	t.Logf("certified %d/%d bases (%d failed)", len(certifiedHash), len(bases), certifyFailed)
+	if certifyFailed > 0 {
+		t.Fatalf("base certification failed for %d/%d bases; aborting matrix eval", certifyFailed, len(bases))
+	}
 
 	// --- Phase 2: concurrent verify of all variants ---------------------------
 
@@ -149,15 +158,18 @@ func TestE2E_GeneratedDataset_Matrix(t *testing.T) {
 		predictedMatch bool
 		statusCode     int
 		certified      bool
+		err            error
 	}
 
 	jobsCh := make(chan verifyJob, len(m.Samples))
 	resultsCh := make(chan verifyRes, len(m.Samples))
 
 	for _, s := range m.Samples {
-		if bh, ok := certifiedHash[s.BaseImageID]; ok {
-			jobsCh <- verifyJob{sample: s, baseHash: bh}
+		bh, ok := certifiedHash[s.BaseImageID]
+		if !ok {
+			t.Fatalf("missing certified hash for base %s (sample %s)", s.BaseImageID, s.ID)
 		}
+		jobsCh <- verifyJob{sample: s, baseHash: bh}
 	}
 	close(jobsCh)
 
@@ -169,12 +181,20 @@ func TestE2E_GeneratedDataset_Matrix(t *testing.T) {
 			for j := range jobsCh {
 				img, rerr := os.ReadFile(j.sample.OutputPath)
 				if rerr != nil {
+					resultsCh <- verifyRes{sample: j.sample, err: fmt.Errorf("read variant: %w", rerr)}
 					continue
 				}
-				status, body := postVerifyFile(t, env,
+				status, body, perr := postVerifyFileResult(env,
 					filepath.Base(j.sample.OutputPath), j.sample.MIME, img)
+				if perr != nil {
+					resultsCh <- verifyRes{sample: j.sample, err: perr}
+					continue
+				}
 				var vr verifyResp
-				_ = json.Unmarshal(body, &vr)
+				if jerr := json.Unmarshal(body, &vr); jerr != nil {
+					resultsCh <- verifyRes{sample: j.sample, statusCode: status, err: fmt.Errorf("decode verify response: %w", jerr)}
+					continue
+				}
 				predictedMatch := status == http.StatusOK &&
 					vr.Certified &&
 					vr.Certificate != nil &&
@@ -194,9 +214,15 @@ func TestE2E_GeneratedDataset_Matrix(t *testing.T) {
 	var totalTP, totalFP, totalTN, totalFN int
 	var highTP, highFP, highTN, highFN int
 	var borderlineTP, borderlineFP, borderlineTN, borderlineFN int
+	var evalErrors int
 
 	for res := range resultsCh {
 		s := res.sample
+		if res.err != nil {
+			evalErrors++
+			t.Errorf("sample %s: %v", s.ID, res.err)
+			continue
+		}
 		predictedMatch := res.predictedMatch
 		correct := predictedMatch == s.ExpectedMatch
 
@@ -321,6 +347,13 @@ func TestE2E_GeneratedDataset_Matrix(t *testing.T) {
 	fmt.Fprintf(&sb, "Borderline only  TP=%d FP=%d FN=%d TN=%d  Acc=%.3f Precision=%.3f Recall=%.3f F1=%.3f\n",
 		borderlineTP, borderlineFP, borderlineFN, borderlineTN, borderlineMetrics.Accuracy, borderlineMetrics.Precision, borderlineMetrics.Recall, borderlineMetrics.F1)
 	t.Log(sb.String())
+
+	if evalErrors > 0 {
+		t.Fatalf("e2e matrix eval had %d infrastructure errors", evalErrors)
+	}
+	if got := totalTP + totalFP + totalTN + totalFN; got != len(m.Samples) {
+		t.Fatalf("evaluated %d/%d samples", got, len(m.Samples))
+	}
 
 	// Write e2e_report.json alongside manifest.json.
 	writeE2EReport(t, filepath.Join(filepath.Dir(manifestPath), "e2e_report.json"),

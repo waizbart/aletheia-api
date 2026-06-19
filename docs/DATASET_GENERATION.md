@@ -36,12 +36,12 @@ This is the key property that makes the dataset a benchmark rather than a tautol
   from the hard precision/recall gates so they can be studied without noisily failing tests.
 
 The manifest embeds `thresholds_snapshot` (the values of `MinInliers`, `MaxColorMean`,
-`MaxCellDist`, `MaxPHashDistance` at generation time) so a future reader knows if labels
-predate a threshold change.
+`MaxCellDist`, `MinAreaCoverage`, and `MaxPHashDistance` at generation time) so a
+future reader knows if labels predate a threshold change.
 
 ## Architecture
 
-```
+```text
 cmd/datasetgen/                  CLI entry point
 internal/dataset/
   source/
@@ -75,10 +75,10 @@ The table below is the canonical list; the registry is the code source of truth.
 | `jpeg_recompress` | q90, q70, q50, q30, q20, q10 | q10 = borderline | q10 ≈ 5.8 LAB mean — documented low edge of pass region |
 | `downscale` | 0.75×, 0.5×, 0.33×, →256px, →160px | borderline | Scale-ratio limits and pHash prefilter collisions make recall content-dependent |
 | `upscale` | 1.5×, 2.0× | borderline | Resampling is identity-preserving, but broad-image recall is content-dependent |
-| `format_change` | PNG, GIF, BMP, TIFF | borderline | Encoder/decoder differences make this broad benchmark unstable |
+| `format_change` | PNG, GIF request encoded as PNG, BMP, TIFF | borderline | Encoder/decoder differences make this broad benchmark unstable |
 | `rotate_cardinal` | 90°, 180°, 270° | borderline | pHash has rotation variants, but large DB prefilter collisions can miss the true base |
 | `rotate_small` | 5°, 10°, 32° | borderline | Border fill and homography quality reduce inliers on diverse images |
-| `crop_border` | 5%, 10%, 15%, 20% margin | borderline | ORB loses inliers when cropped borders remove feature-rich regions |
+| `crop_border` | 5%, 10%, 15% margin | borderline | ORB loses inliers when cropped borders remove feature-rich regions |
 | `brightness` | ±5%, ±10% | borderline | LAB residual often crosses the current color threshold on diverse images |
 | `noise_light` | Gaussian σ=5, σ=10 | high | Low-amplitude; ORB and color residual unaffected |
 | `sharpen` | Unsharp light | high | Edge enhancement; negligible color residual |
@@ -96,6 +96,7 @@ The table below is the canonical list; the registry is the code source of truth.
 | `color_invert` | invert | high | Maximal color residual; all cells spike |
 | `localized_recolor` | region recolor | borderline | A 10% recolor may not spike a grid cell enough on uniform regions |
 | `content_overlay` | 10%, 15%, 20%, 30% area | 10% = borderline | Per-cell max trips (repo `aletheia-sword`, `rectangle_overlay_15pct`) |
+| `crop_border_20pct` | 20% margin | borderline reject | Coverage-gate reject side, same practical coverage class as `heavy_crop_40pct` |
 | `heavy_crop` | 40%, 50%, 60% | 40% = borderline | Inliers < MinInliers=20 and framing change |
 | `different_image` | peer (cyclic pairing) | high | Primary negative control — different content must never match |
 
@@ -103,7 +104,7 @@ The table below is the canonical list; the registry is the code source of truth.
 
 [Lorem Picsum](https://picsum.photos) provides deterministic, stable photo URLs:
 
-```
+```text
 https://picsum.photos/id/{id}/800/600
 ```
 
@@ -157,7 +158,7 @@ A flat `manifest.csv` mirrors the JSON for easy spreadsheet/CLI analysis.
 ### 1. Smoke (offline, no network, 20 base images)
 
 ```bash
-go run ./cmd/datasetgen \
+go run -tags datasetgen ./cmd/datasetgen \
   --source local \
   --out testdata/generated \
   --seed 42
@@ -166,7 +167,7 @@ go run ./cmd/datasetgen \
 ### 2. Full (1000 images from Lorem Picsum, ~6–10 GB disk)
 
 ```bash
-go run ./cmd/datasetgen \
+go run -tags datasetgen ./cmd/datasetgen \
   --source picsum \
   --count 1000 \
   --seed 42 \
@@ -216,7 +217,7 @@ regression bed for the documented boundary cases. The generated dataset adds sca
 All test fixtures live under a single `testdata/` root at the repository root. The
 `internal/testdata` resolver resolves paths without any relative path assumptions:
 
-```
+```text
 testdata/curated/   → committed; irreplaceable hand-made oracle
 testdata/generated/ → git-ignored; regenerable on demand
 ```

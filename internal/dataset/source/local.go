@@ -21,6 +21,7 @@ func (l *Local) List(_ int64, n int) ([]Ref, error) {
 	}
 
 	var refs []Ref
+	seenIDs := make(map[string]string)
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -35,8 +36,13 @@ func (l *Local) List(_ int64, n int) ([]Ref, error) {
 		default:
 			continue
 		}
+		id := strings.TrimSuffix(name, filepath.Ext(name))
+		if previous, ok := seenIDs[id]; ok {
+			return nil, fmt.Errorf("local source: duplicate ref id %q from %q and %q", id, previous, e.Name())
+		}
+		seenIDs[id] = e.Name()
 		refs = append(refs, Ref{
-			ID:   strings.TrimSuffix(name, filepath.Ext(name)),
+			ID:   id,
 			Path: filepath.Join(l.Dir, e.Name()),
 			MIME: mime,
 		})

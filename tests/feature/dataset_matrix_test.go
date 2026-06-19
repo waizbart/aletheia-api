@@ -64,13 +64,11 @@ func runManifestEval(t *testing.T, manifestPath string) {
 		}
 		b, err := os.ReadFile(s.SourcePath)
 		if err != nil {
-			t.Logf("skip base %s: %v", s.BaseImageID, err)
-			continue
+			t.Fatalf("base %s: read %q: %v", s.BaseImageID, s.SourcePath, err)
 		}
 		sig, refImage, err := ext.Compute(ctx, b)
 		if err != nil {
-			t.Logf("skip base %s: compute: %v", s.BaseImageID, err)
-			continue
+			t.Fatalf("base %s: compute: %v", s.BaseImageID, err)
 		}
 		bases[s.BaseImageID] = baseEntry{bytes: b, sig: sig, refImage: refImage}
 	}
@@ -79,23 +77,31 @@ func runManifestEval(t *testing.T, manifestPath string) {
 	cells := make(map[string]*manifestCell)
 	var tp, fp, tn, fn int
 	var tpH, fpH, tnH, fnH int
+	var evalErrors int
 
 	for _, s := range m.Samples {
 		base, ok := bases[s.BaseImageID]
 		if !ok {
+			evalErrors++
+			t.Errorf("sample %s: missing base %s", s.ID, s.BaseImageID)
 			continue
 		}
 		varB, err := os.ReadFile(s.OutputPath)
 		if err != nil {
-			t.Logf("skip %s: read variant: %v", s.ID, err)
+			evalErrors++
+			t.Errorf("sample %s: read variant: %v", s.ID, err)
 			continue
 		}
 		candSig, _, cerr := ext.Compute(ctx, varB)
 		if cerr != nil {
+			evalErrors++
+			t.Errorf("sample %s: compute variant: %v", s.ID, cerr)
 			continue
 		}
 		dec, merr := ext.Match(ctx, base.sig, candSig, base.refImage, varB)
 		if merr != nil {
+			evalErrors++
+			t.Errorf("sample %s: match: %v", s.ID, merr)
 			continue
 		}
 		matched := dec.Matched
@@ -183,6 +189,9 @@ func runManifestEval(t *testing.T, manifestPath string) {
 	}
 	t.Log(sb.String())
 
+	if evalErrors > 0 {
+		t.Fatalf("manifest eval had %d infrastructure errors", evalErrors)
+	}
 	if precision < 0.95 {
 		t.Errorf("precision %.3f below 0.95 — false-positive rate too high", precision)
 	}
@@ -254,13 +263,14 @@ func runSmokeEval(t *testing.T) {
 
 	var tp, fp, tn, fn int
 	var tpH, fpH, tnH, fnH int
+	var evalErrors int
 
 	for i, base := range bases {
 		peer := bases[(i+1)%len(bases)]
 		for _, e := range entries {
 			builder, berr := transform.BuilderFor(e)
 			if berr != nil {
-				continue
+				t.Fatalf("builder for %s: %v", e.Name, berr)
 			}
 			candBytes, buildErr := builder(base.bytes, peer.bytes)
 			c := cells[e.Name]
@@ -269,14 +279,35 @@ func runSmokeEval(t *testing.T) {
 			var detail string
 			if buildErr != nil {
 				detail = fmt.Sprintf("build err: %v", buildErr)
+				c.fail++
+				evalErrors++
+				if c.firstFailBase == "" {
+					c.firstFailBase = base.name
+					c.firstFailDec = detail
+				}
+				continue
 			} else {
 				candSig, _, cerr := ext.Compute(ctx, candBytes)
 				if cerr != nil {
 					detail = fmt.Sprintf("extract err: %v", cerr)
+					c.fail++
+					evalErrors++
+					if c.firstFailBase == "" {
+						c.firstFailBase = base.name
+						c.firstFailDec = detail
+					}
+					continue
 				} else {
 					dec, merr := ext.Match(ctx, base.sig, candSig, base.refImage, candBytes)
 					if merr != nil {
 						detail = fmt.Sprintf("match err: %v", merr)
+						c.fail++
+						evalErrors++
+						if c.firstFailBase == "" {
+							c.firstFailBase = base.name
+							c.firstFailDec = detail
+						}
+						continue
 					} else {
 						matched = dec.Matched
 						detail = fmt.Sprintf("inliers=%d mean=%.2f max=%.2f cells=%d",
@@ -362,6 +393,9 @@ func runSmokeEval(t *testing.T) {
 		tpH, fpH, fnH, tnH, precision, recall, f1)
 	t.Log(sb.String())
 
+	if evalErrors > 0 {
+		t.Fatalf("smoke eval had %d infrastructure errors", evalErrors)
+	}
 	if precision < 0.95 {
 		t.Errorf("precision %.3f below 0.95 — false-positive rate too high (high-confidence entries)", precision)
 	}

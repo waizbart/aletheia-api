@@ -241,7 +241,7 @@ func colorResidual(refLab, candLab, H gocv.Mat) (mean, max float64, cells int, c
 			mRegion := mask.Region(rect)
 			cov := mRegion.Mean().Val1 / 255.0
 			mRegion.Close()
-			if cov < domain.MinCoverage {
+			if cov < domain.MinCellMaskCoverage {
 				continue
 			}
 

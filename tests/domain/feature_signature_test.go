@@ -38,3 +38,24 @@ func TestDecide(t *testing.T) {
 		})
 	}
 }
+
+func TestFeatureSignatureCounts(t *testing.T) {
+	var nilSig *domain.FeatureSignature
+	if got := nilSig.KeypointCount(); got != 0 {
+		t.Fatalf("nil KeypointCount = %d, want 0", got)
+	}
+	if got := nilSig.DescriptorCount(); got != 0 {
+		t.Fatalf("nil DescriptorCount = %d, want 0", got)
+	}
+
+	sig := &domain.FeatureSignature{
+		Keypoints:   make([]byte, domain.KeypointEncodedSize*2+7),
+		Descriptors: make([]byte, domain.DescriptorSize*3+5),
+	}
+	if got := sig.KeypointCount(); got != 2 {
+		t.Fatalf("KeypointCount = %d, want 2", got)
+	}
+	if got := sig.DescriptorCount(); got != 3 {
+		t.Fatalf("DescriptorCount = %d, want 3", got)
+	}
+}

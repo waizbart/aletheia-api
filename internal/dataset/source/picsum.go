@@ -17,6 +17,9 @@ const (
 	picsumImgURL      = "https://picsum.photos/id/%s/800/600"
 	picsumAttrib      = "Lorem Picsum (https://picsum.photos) — Unsplash License"
 	picsumPageSize    = 100
+	picsumMaxRetries  = 3
+	picsumMaxImage    = 20 << 20
+	picsumMaxListPage = 1 << 20
 )
 
 // Picsum is a Source backed by Lorem Picsum (https://picsum.photos).
@@ -85,9 +88,12 @@ func (p *Picsum) Fetch(ref Ref) ([]byte, error) {
 }
 
 func (p *Picsum) download(url string) ([]byte, error) {
-	const maxRetries = 3
+	return p.fetchURL(url, picsumMaxImage)
+}
+
+func (p *Picsum) fetchURL(url string, maxBytes int64) ([]byte, error) {
 	var lastErr error
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := 0; attempt < picsumMaxRetries; attempt++ {
 		if attempt > 0 {
 			time.Sleep(time.Duration(1<<attempt) * time.Second)
 		}
@@ -96,7 +102,7 @@ func (p *Picsum) download(url string) ([]byte, error) {
 			lastErr = err
 			continue
 		}
-		body, err := io.ReadAll(resp.Body)
+		body, err := readLimited(resp.Body, maxBytes)
 		resp.Body.Close()
 		if err != nil {
 			lastErr = err
@@ -108,7 +114,18 @@ func (p *Picsum) download(url string) ([]byte, error) {
 		}
 		return body, nil
 	}
-	return nil, fmt.Errorf("picsum: download %s after %d attempts: %w", url, maxRetries, lastErr)
+	return nil, fmt.Errorf("picsum: fetch %s after %d attempts: %w", url, picsumMaxRetries, lastErr)
+}
+
+func readLimited(r io.Reader, maxBytes int64) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > maxBytes {
+		return nil, fmt.Errorf("response exceeds %d bytes", maxBytes)
+	}
+	return b, nil
 }
 
 // fetchList retrieves all available Picsum images by paginating through the
@@ -126,17 +143,9 @@ func (p *Picsum) fetchList() ([]picsumEntry, error) {
 	var all []picsumEntry
 	for page := 1; ; page++ {
 		url := fmt.Sprintf(picsumListPageURL, page)
-		resp, err := p.client.Get(url) //nolint:noctx
+		body, err := p.fetchURL(url, picsumMaxListPage)
 		if err != nil {
 			return nil, fmt.Errorf("picsum: fetch list page %d: %w", page, err)
-		}
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("picsum: read list page %d: %w", page, err)
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("picsum: list page %d HTTP %d", page, resp.StatusCode)
 		}
 		var page_entries []picsumEntry
 		if err := json.Unmarshal(body, &page_entries); err != nil {

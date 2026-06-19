@@ -68,6 +68,9 @@ func TestWriteReadJSON(t *testing.T) {
 	if got.Metadata.Thresholds.MinInliers == 0 {
 		t.Error("thresholds_snapshot.min_inliers should be non-zero")
 	}
+	if got.Metadata.Thresholds.MinAreaCoverage == 0 {
+		t.Error("thresholds_snapshot.min_area_coverage should be non-zero")
+	}
 }
 
 func TestWriteCSV(t *testing.T) {

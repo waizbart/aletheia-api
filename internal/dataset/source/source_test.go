@@ -3,6 +3,7 @@ package source_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/waizbart/aletheia-api/internal/dataset/source"
@@ -100,5 +101,23 @@ func TestLocal_MissingDir(t *testing.T) {
 	_, err := l.List(42, 10)
 	if err == nil {
 		t.Error("expected error for missing dir, got nil")
+	}
+}
+
+func TestLocal_ListRejectsDuplicateIDs(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"same.jpg", "same.png"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	l := &source.Local{Dir: dir}
+	_, err := l.List(42, 0)
+	if err == nil {
+		t.Fatal("expected duplicate ID error, got nil")
+	}
+	if !strings.Contains(err.Error(), `duplicate ref id "same"`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

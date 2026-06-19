@@ -28,7 +28,10 @@ func TestCurated(t *testing.T) {
 func TestGenerated(t *testing.T) {
 	p := testdata.Generated()
 	// Generated dir may or may not exist yet; just check it has the right suffix.
-	root, _ := testdata.Root()
+	root, err := testdata.Root()
+	if err != nil {
+		t.Fatalf("Root: %v", err)
+	}
 	want := filepath.Join(root, "testdata", "generated")
 	if p != want {
 		t.Errorf("Generated() = %q, want %q", p, want)

@@ -18,6 +18,7 @@ type ThresholdsSnapshot struct {
 	MinInliers       int     `json:"min_inliers"`
 	MaxColorMean     float64 `json:"max_color_mean"`
 	MaxCellDist      float64 `json:"max_cell_dist"`
+	MinAreaCoverage  float64 `json:"min_area_coverage"`
 	MaxPHashDistance int     `json:"max_phash_distance"`
 }
 
@@ -27,6 +28,7 @@ func ActiveThresholds() ThresholdsSnapshot {
 		MinInliers:       domain.MinInliers,
 		MaxColorMean:     domain.MaxColorMean,
 		MaxCellDist:      domain.MaxCellDist,
+		MinAreaCoverage:  domain.MinAreaCoverage,
 		MaxPHashDistance: domain.MaxPHashDistance,
 	}
 }

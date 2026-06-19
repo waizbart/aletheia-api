@@ -4,7 +4,7 @@ Shared test fixtures for all tests and lab tools in this repository.
 
 ## Layout
 
-```
+```text
 testdata/
   curated/               ← committed; hand-made, irreplaceable oracle
     aletheia/            ← 28 aletheia-* images (golden quality/rotation/filter matrix)
@@ -39,7 +39,7 @@ gen  := testdata.Generated("manifest.json")       // .../testdata/generated/mani
 ### Smoke run (offline, 20 base images from `curated/smoke-base`)
 
 ```bash
-go run ./cmd/datasetgen \
+go run -tags datasetgen ./cmd/datasetgen \
   --source local \
   --out testdata/generated \
   --seed 42
@@ -48,7 +48,7 @@ go run ./cmd/datasetgen \
 ### Full run (1000 images from Lorem Picsum)
 
 ```bash
-go run ./cmd/datasetgen \
+go run -tags datasetgen ./cmd/datasetgen \
   --source picsum \
   --count 1000 \
   --seed 42 \
@@ -81,10 +81,10 @@ See `internal/dataset/transform/registry.go` for the full canonical list. Summar
 | jpeg_recompress q10 | true | borderline | ≈5.8 LAB mean, near low edge |
 | downscale 0.75–0.33, →256px, →160px | true | borderline | scale-ratio and prefilter recall are content-dependent |
 | upscale 1.5x–2x | true | borderline | resampling only, but broad-image recall varies |
-| format_change png/gif/bmp/tiff | true | borderline | encoder/decoder differences vary by image |
+| format_change png/gif-request-as-png/bmp/tiff | true | borderline | encoder/decoder differences vary by image |
 | rotate_cardinal 90/180/270° | true | borderline | pHash rotation variants help, but large DB prefilter can miss |
 | rotate_small 5/10/32° | true | borderline | border fill reduces inliers |
-| crop_border 5/10/15/20% | true | borderline | crops can remove feature-rich regions |
+| crop_border 5/10/15% | true | borderline | crops can remove feature-rich regions |
 | brightness ±5/±10% | true | borderline | LAB residual often crosses current threshold |
 | noise_light σ5/σ10 | true | high | |
 | sharpen light | true | high | |
@@ -98,6 +98,7 @@ See `internal/dataset/transform/registry.go` for the full canonical list. Summar
 | localized_recolor | false | borderline | 10% recolor may not spike a grid cell enough |
 | content_overlay 15/20/30% | false | high | |
 | content_overlay 10% | false | borderline | |
+| crop_border 20% | false | borderline | coverage-gate reject side |
 | heavy_crop 50/60% | false | high | |
 | heavy_crop 40% | false | borderline | |
 | different_image (peer) | false | high | primary negative control |

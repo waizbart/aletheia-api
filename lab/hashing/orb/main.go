@@ -34,15 +34,15 @@ import (
 )
 
 const (
-	OriginalFile = "aletheia.jpg"
-	MinInliers     = 20
-	MaxColorDist   = 12.0 // mean LAB residual cap (catches uniform color filters)
-	MaxCellDist    = 38.0 // single-cell LAB residual cap (catches localized content changes)
-	MinCoverage    = 0.9  // per-cell warp coverage required to include the cell
-	LoweRatio      = 0.75
-	OrbFeatures    = 2000
-	GridSize       = 128
-	ResizeMax      = 1024
+	OriginalFile        = "aletheia.jpg"
+	MinInliers          = 20
+	MaxColorDist        = 12.0 // mean LAB residual cap (catches uniform color filters)
+	MaxCellDist         = 38.0 // single-cell LAB residual cap (catches localized content changes)
+	MinCellMaskCoverage = 0.9  // per-cell warp coverage required to include the cell
+	LoweRatio           = 0.75
+	OrbFeatures         = 2000
+	GridSize            = 128
+	ResizeMax           = 1024
 )
 
 var expected = map[string]string{
@@ -194,7 +194,7 @@ func colorResidual(refLab, candLab, H gocv.Mat) (mean, max float64, cells int) {
 			mRegion := mask.Region(rect)
 			coverage := mRegion.Mean().Val1 / 255.0
 			mRegion.Close()
-			if coverage < MinCoverage {
+			if coverage < MinCellMaskCoverage {
 				continue
 			}
 

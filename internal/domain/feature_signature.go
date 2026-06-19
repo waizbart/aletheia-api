@@ -29,12 +29,12 @@ const (
 	// a 36%-area crop — despite opposite taxonomy labels). 0.42 keeps mild border
 	// crops and rejects any crop discarding >~60% of the frame. Full-frame edits
 	// (jpeg/noise/scale/rotation) sit near 1.0 and are unaffected.
-	MinAreaCoverage = 0.42
-	MinCoverage     = 0.9
-	GridSize        = 128
-	OrbFeatures     = 2000
-	LoweRatio       = 0.75
-	ResizeMax       = 1024
+	MinAreaCoverage    = 0.42
+	MinCellMaskCoverage = 0.9
+	GridSize           = 128
+	OrbFeatures        = 2000
+	LoweRatio          = 0.75
+	ResizeMax          = 1024
 )
 
 const (

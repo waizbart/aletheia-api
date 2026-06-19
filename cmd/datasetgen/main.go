@@ -28,6 +28,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -169,7 +170,7 @@ func main() {
 			defer wg.Done()
 			for j := range jobs {
 				samples, jerr := processBase(j.base.ref, j.base.basePath, j.base.bytes,
-					j.peer.bytes, entries, varDir)
+					j.peer.bytes, j.peer.ref.ID, entries, varDir)
 				results <- result{idx: j.idx, baseID: j.base.ref.ID, samples: samples, err: jerr}
 			}
 		}()
@@ -179,7 +180,7 @@ func main() {
 		close(results)
 	}()
 
-	var allSamples []manifest.Sample
+	samplesByBase := make([][]manifest.Sample, len(allBases))
 	var errCount int
 	done := 0
 	for res := range results {
@@ -187,10 +188,15 @@ func main() {
 		if res.err != nil {
 			log.Printf("[%d/%d] ERROR %s: %v", done, len(allBases), res.baseID, res.err)
 			errCount++
-			continue
+		} else {
+			log.Printf("[%d/%d] OK %s  variants=%d", done, len(allBases), res.baseID, len(res.samples))
 		}
-		allSamples = append(allSamples, res.samples...)
-		log.Printf("[%d/%d] OK %s  variants=%d", done, len(allBases), res.baseID, len(res.samples))
+		samplesByBase[res.idx] = res.samples
+	}
+
+	var allSamples []manifest.Sample
+	for _, samples := range samplesByBase {
+		allSamples = append(allSamples, samples...)
 	}
 
 	commit := toolCommit()
@@ -235,7 +241,7 @@ func main() {
 // peerB is the bytes of the NEXT base in cyclic order, used by different_image.
 func processBase(
 	ref source.Ref, basePath string, baseB, peerB []byte,
-	entries []transform.Entry, varDir string,
+	peerID string, entries []transform.Entry, varDir string,
 ) ([]manifest.Sample, error) {
 	vDir := filepath.Join(varDir, ref.ID)
 	if err := os.MkdirAll(vDir, 0755); err != nil {
@@ -243,9 +249,11 @@ func processBase(
 	}
 
 	var samples []manifest.Sample
+	var errs []error
 	for _, e := range entries {
 		builder, berr := transform.BuilderFor(e)
 		if berr != nil {
+			errs = append(errs, fmt.Errorf("%s: builder: %w", e.Name, berr))
 			continue
 		}
 
@@ -254,28 +262,30 @@ func processBase(
 		// Resumable: skip if output already exists.
 		if _, serr := os.Stat(outPath); serr == nil {
 			if b, rerr := os.ReadFile(outPath); rerr == nil {
-				samples = append(samples, buildSample(ref.ID, basePath, outPath, e, b))
+				samples = append(samples, buildSample(ref.ID, peerID, basePath, outPath, e, b))
+			} else {
+				errs = append(errs, fmt.Errorf("%s: read existing %q: %w", e.Name, outPath, rerr))
 			}
 			continue
 		}
 
 		varB, buildErr := builder(baseB, peerB)
 		if buildErr != nil {
-			log.Printf("  skip %s/%s: %v", ref.ID, e.Name, buildErr)
+			errs = append(errs, fmt.Errorf("%s: build: %w", e.Name, buildErr))
 			continue
 		}
 		if werr := os.WriteFile(outPath, varB, 0644); werr != nil {
-			log.Printf("  skip %s/%s: write: %v", ref.ID, e.Name, werr)
+			errs = append(errs, fmt.Errorf("%s: write %q: %w", e.Name, outPath, werr))
 			continue
 		}
-		samples = append(samples, buildSample(ref.ID, basePath, outPath, e, varB))
+		samples = append(samples, buildSample(ref.ID, peerID, basePath, outPath, e, varB))
 	}
-	return samples, nil
+	return samples, errors.Join(errs...)
 }
 
-func buildSample(baseID, basePath, outPath string, e transform.Entry, varB []byte) manifest.Sample {
+func buildSample(baseID, peerID, basePath, outPath string, e transform.Entry, varB []byte) manifest.Sample {
 	h := sha256.Sum256(varB)
-	return manifest.Sample{
+	s := manifest.Sample{
 		ID:              baseID + "__" + e.Name,
 		BaseImageID:     baseID,
 		SourcePath:      basePath,
@@ -290,6 +300,10 @@ func buildSample(baseID, basePath, outPath string, e transform.Entry, varB []byt
 		SHA256:          hex.EncodeToString(h[:]),
 		IsNegControl:    e.Family == "different_image",
 	}
+	if s.IsNegControl {
+		s.PeerBaseID = peerID
+	}
+	return s
 }
 
 func mimeExt(mime string) string {
