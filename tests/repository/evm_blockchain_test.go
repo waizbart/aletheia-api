@@ -105,6 +105,40 @@ func TestRPCBlockchainService_RegisterHash_RPCResponseBranches(t *testing.T) {
 	}
 }
 
+func TestRPCBlockchainService_RegisterHash_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("content-type = %q, want application/json", got)
+		}
+		_, _ = w.Write([]byte(`{"result":"0xtxhash"}`))
+	}))
+	defer server.Close()
+
+	svc, err := repository.NewEVMBlockchainService(
+		server.URL,
+		"0x1111111111111111111111111111111111111111",
+		"0x2222222222222222222222222222222222222222",
+	)
+	if err != nil {
+		t.Fatalf("unexpected constructor error: %v", err)
+	}
+
+	validHash := strings.Repeat("a", 64)
+	txHash, block, err := svc.RegisterHash(context.Background(), validHash, validHash)
+	if err != nil {
+		t.Fatalf("RegisterHash: %v", err)
+	}
+	if txHash != "0xtxhash" {
+		t.Fatalf("txHash = %q, want 0xtxhash", txHash)
+	}
+	if block != 0 {
+		t.Fatalf("block = %d, want 0", block)
+	}
+}
+
 func TestRPCBlockchainService_IsHashRegistered(t *testing.T) {
 	svc, err := repository.NewEVMBlockchainService(
 		"http://localhost",

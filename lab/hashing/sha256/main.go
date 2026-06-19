@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/waizbart/aletheia-api/internal/testdata"
 )
 
 const ORIGINAL_FILE_NAME = "aletheia.jpg"
 
 func main() {
-	testdataDir := filepath.Join("..", "testdata")
+	testdataDir := testdata.Curated("aletheia")
 
 	originalPath := filepath.Join(testdataDir, ORIGINAL_FILE_NAME)
 	originalHash, err := hashFile(originalPath)

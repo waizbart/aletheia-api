@@ -113,20 +113,22 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 					if maxDist != domain.MaxPHashDistance {
 						t.Fatalf("maxDist = %d, want %d", maxDist, domain.MaxPHashDistance)
 					}
-					if topK != 20 {
-						t.Fatalf("topK = %d, want 20", topK)
+					if topK != 64 {
+						t.Fatalf("topK = %d, want 64", topK)
 					}
+					storedPHash := phashes[0]
 					return []*domain.Certificate{{
 						ID:           "cert-1",
 						ContentHash:  "stored",
 						Signature:    &domain.FeatureSignature{Descriptors: []byte{0x01}, Keypoints: []byte{0x02}},
+						PHash:        &storedPHash,
 						ImageBlobKey: "stored.jpg",
 					}}, nil
 				},
 			},
 			extractor: &mockExtractor{
 				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
-					return domain.MatchDecision{Matched: true, Inliers: 100, ColorMean: 1.0, ColorMax: 5.0}, nil
+					return domain.MatchDecision{Matched: true, Inliers: 100, ColorMean: 1.0, ColorMax: 5.0, Coverage: 1.0}, nil
 				},
 			},
 			blobs:    &mockBlobStore{},
@@ -151,6 +153,55 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
 					return domain.MatchDecision{Matched: false, Inliers: 5}, nil
 				},
+			},
+			blobs:    &mockBlobStore{},
+			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantCert: false,
+		},
+		{
+			name: "candidate match reasons cover color and coverage failures",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+					return []*domain.Certificate{
+						{ID: "color-mean", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}, ImageBlobKey: "mean.jpg"},
+						{ID: "color-max", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}, ImageBlobKey: "max.jpg"},
+						{ID: "coverage", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}, ImageBlobKey: "coverage.jpg"},
+					}, nil
+				},
+			},
+			extractor: &mockExtractor{
+				matchFn: func() func(context.Context, *domain.FeatureSignature, *domain.FeatureSignature, []byte, []byte) (domain.MatchDecision, error) {
+					call := 0
+					return func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
+						call++
+						switch call {
+						case 1:
+							return domain.MatchDecision{
+								Inliers:   domain.MinInliers,
+								ColorMean: domain.MaxColorMean + 0.1,
+								ColorMax:  domain.MaxCellDist,
+								Coverage:  1.0,
+							}, nil
+						case 2:
+							return domain.MatchDecision{
+								Inliers:   domain.MinInliers,
+								ColorMean: domain.MaxColorMean,
+								ColorMax:  domain.MaxCellDist + 0.1,
+								Coverage:  1.0,
+							}, nil
+						default:
+							return domain.MatchDecision{
+								Inliers:   domain.MinInliers,
+								ColorMean: domain.MaxColorMean,
+								ColorMax:  domain.MaxCellDist,
+								Coverage:  domain.MinAreaCoverage - 0.01,
+							}, nil
+						}
+					}
+				}(),
 			},
 			blobs:    &mockBlobStore{},
 			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},

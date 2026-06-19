@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# Generated/downloaded test dataset (regenerate via: go run ./cmd/datasetgen)
+/testdata/generated/
+
 # Editor/IDE
 # .idea/
 # .vscode/

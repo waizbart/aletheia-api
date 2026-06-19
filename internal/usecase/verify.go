@@ -11,7 +11,15 @@ import (
 	"github.com/waizbart/aletheia-api/internal/observability"
 )
 
-const verifyTopK = 20
+// verifyTopK bounds how many pHash-prefilter candidates advance to the
+// (expensive) ORB+RANSAC match. Each negative query that finds no match pays a
+// full match against every candidate, so this value dominates verify latency.
+// Widening it (e.g. 256) was measured to quadruple the matrix-eval runtime for
+// no clear recall gain: the dominant false-negative cause for geometric edits is
+// pHash drift beyond MaxPHashDistance (the correct certificate is filtered out
+// entirely, not merely ranked past the window), which a larger topK cannot
+// recover. Prefilter recall is tracked separately; see docs/DATASET_GENERATION.md.
+const verifyTopK = 64
 
 type VerifyUseCase struct {
 	repo      CertificateRepository
@@ -182,6 +190,8 @@ func (uc *VerifyUseCase) Execute(ctx context.Context, in VerifyInput) (out *Veri
 			observability.Attr{Key: "color_max", Value: decision.ColorMax},
 			observability.Attr{Key: "max_cell_dist", Value: domain.MaxCellDist},
 			observability.Attr{Key: "cells", Value: decision.Cells},
+			observability.Attr{Key: "coverage", Value: decision.Coverage},
+			observability.Attr{Key: "min_area_coverage", Value: domain.MinAreaCoverage},
 			observability.Attr{Key: "matched", Value: decision.Matched},
 			observability.Attr{Key: "reason", Value: matchReason(decision)},
 		)
@@ -221,6 +231,8 @@ func matchReason(d domain.MatchDecision) string {
 		return fmt.Sprintf("cor média %.2f > %.1f", d.ColorMean, domain.MaxColorMean)
 	case d.ColorMax > domain.MaxCellDist:
 		return fmt.Sprintf("cor de célula %.1f > %.1f", d.ColorMax, domain.MaxCellDist)
+	case d.Coverage < domain.MinAreaCoverage:
+		return fmt.Sprintf("cobertura %.2f < %.2f", d.Coverage, domain.MinAreaCoverage)
 	default:
 		return "passou todos os limiares"
 	}

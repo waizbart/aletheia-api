@@ -30,10 +30,11 @@ import (
 	"github.com/waizbart/aletheia-api/internal/feature"
 	"github.com/waizbart/aletheia-api/internal/handler"
 	"github.com/waizbart/aletheia-api/internal/repository"
+	"github.com/waizbart/aletheia-api/internal/testdata"
 	"github.com/waizbart/aletheia-api/internal/usecase"
 )
 
-const testdataDir = "../../lab/hashing/testdata"
+var testdataDir = testdata.Curated("aletheia")
 
 type e2eEnv struct {
 	server   *httptest.Server
@@ -222,8 +223,23 @@ func postCertify(t *testing.T, env *e2eEnv, filename, contentType string, body [
 
 func postVerifyFile(t *testing.T, env *e2eEnv, filename, contentType string, body []byte) (int, []byte) {
 	t.Helper()
-	req := newMultipartReq(t, http.MethodPost, env.server.URL+"/certificates/verify", filename, contentType, body)
-	return doRequest(t, req)
+	status, respBody, err := postVerifyFileResult(env, filename, contentType, body)
+	if err != nil {
+		t.Fatalf("post verify file: %v", err)
+	}
+	return status, respBody
+}
+
+func postVerifyFileResult(env *e2eEnv, filename, contentType string, body []byte) (int, []byte, error) {
+	req, err := newMultipartReqResult(http.MethodPost, env.server.URL+"/certificates/verify", filename, contentType, body)
+	if err != nil {
+		return 0, nil, err
+	}
+	status, respBody, err := doRequestResult(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	return status, respBody, nil
 }
 
 func getVerifyHash(t *testing.T, env *e2eEnv, hash string) (int, []byte) {
@@ -241,6 +257,14 @@ func getVerifyHash(t *testing.T, env *e2eEnv, hash string) (int, []byte) {
 
 func newMultipartReq(t *testing.T, method, url, filename, contentType string, body []byte) *http.Request {
 	t.Helper()
+	req, err := newMultipartReqResult(method, url, filename, contentType, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return req
+}
+
+func newMultipartReqResult(method, url, filename, contentType string, body []byte) (*http.Request, error) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	h := make(textproto.MIMEHeader)
@@ -248,35 +272,43 @@ func newMultipartReq(t *testing.T, method, url, filename, contentType string, bo
 	h.Set("Content-Type", contentType)
 	pw, err := mw.CreatePart(h)
 	if err != nil {
-		t.Fatalf("multipart create part: %v", err)
+		return nil, fmt.Errorf("multipart create part: %w", err)
 	}
 	if _, err := pw.Write(body); err != nil {
-		t.Fatalf("multipart write: %v", err)
+		return nil, fmt.Errorf("multipart write: %w", err)
 	}
 	if err := mw.Close(); err != nil {
-		t.Fatalf("multipart close: %v", err)
+		return nil, fmt.Errorf("multipart close: %w", err)
 	}
 	req, err := http.NewRequest(method, url, &buf)
 	if err != nil {
-		t.Fatalf("new req: %v", err)
+		return nil, fmt.Errorf("new req: %w", err)
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
-	return req
+	return req, nil
 }
 
 func doRequest(t *testing.T, req *http.Request) (int, []byte) {
 	t.Helper()
+	status, body, err := doRequestResult(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return status, body
+}
+
+func doRequestResult(req *http.Request) (int, []byte, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		t.Fatalf("http do: %v", err)
+		return 0, nil, fmt.Errorf("http do: %w", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("read body: %v", err)
+		return 0, nil, fmt.Errorf("read body: %w", err)
 	}
-	return resp.StatusCode, body
+	return resp.StatusCode, body, nil
 }
 
 func decodeCert(t *testing.T, body []byte) certResp {

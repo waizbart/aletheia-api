@@ -8,5 +8,7 @@ CREATE TABLE IF NOT EXISTS certificates (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE certificates ADD COLUMN IF NOT EXISTS perceptual_hash BIGINT;
+
 CREATE INDEX IF NOT EXISTS idx_certificates_content_hash ON certificates(content_hash);
 CREATE INDEX IF NOT EXISTS idx_certificates_perceptual_hash ON certificates(perceptual_hash);
