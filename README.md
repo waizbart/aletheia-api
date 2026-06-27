@@ -89,15 +89,13 @@ compose.
 
 2. Edite `.env` com sua conexão Postgres, RPC EVM, endereço de
    transmissor (`FROM_ADDRESS`), endereço do contrato âncora
-   (`CONTRACT_ADDRESS`) e credenciais do bucket S3.
+   (`CONTRACT_ADDRESS`), credenciais do bucket S3 e ao menos uma chave de
+   API (`API_KEYS`, formato `chave:identidade,...`).
 
-3. Rode as migrações na ordem:
-
-   ```bash
-   psql "$DATABASE_URL" -f migrations/001_create_certificates.sql
-   psql "$DATABASE_URL" -f migrations/002_perceptual_v2.sql
-   psql "$DATABASE_URL" -f migrations/003_phash_bands_and_commitment.sql
-   ```
+3. Use uma imagem Postgres com a extensão **pgvector** (>= 0.7.0), por
+   exemplo `pgvector/pgvector:pg16` (o `docker compose` já usa). As
+   migrações são aplicadas automaticamente pela própria API no startup via
+   golang-migrate — não é preciso rodar `psql` manualmente.
 
 4. Garanta que o bucket S3 existe (no MinIO local o
    `docker compose` já cria via `minio-init`).
@@ -153,12 +151,20 @@ Devolve `200 OK` com `{ "status": "ok" }` quando o processo está no ar.
 ```
 POST /certificates
 Content-Type: multipart/form-data
+X-API-Key: <chave de API válida>
 
 file: <arquivo de imagem>
-X-Registrant: <opcional, identificador do registrante>
 ```
 
+Autenticação por API key é obrigatória (header `X-API-Key`); o registrante
+é derivado da identidade autenticada, não de um header arbitrário.
+
 Tipos aceitos: JPEG, PNG, GIF, WebP, BMP, TIFF. Limite de 100 MB.
+
+A âncora on-chain é **assíncrona**: a resposta retorna imediatamente com
+`anchor_status: "pending"` e `tx_hash` vazio; um worker em background ancora
+o certificado e atualiza o status para `anchored` (consultável via
+`GET /certificates/verify?hash=...`).
 
 Resposta (`201 Created`):
 
@@ -166,9 +172,10 @@ Resposta (`201 Created`):
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "registrant": "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
-  "tx_hash": "0x9fce0c2b9b0d2d8f3a1e5e7d4c5b3a8f7e6d4c3b2a1908f7e6d5c4b3a2918e7",
+  "registrant": "alice",
+  "tx_hash": "",
   "block_number": 0,
+  "anchor_status": "pending",
   "created_at": "2026-02-25T12:00:00Z"
 }
 ```

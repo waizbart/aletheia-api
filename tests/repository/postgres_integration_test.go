@@ -6,23 +6,23 @@ import (
 	"context"
 	"database/sql"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	_ "github.com/lib/pq"
 
 	"github.com/waizbart/aletheia-api/internal/domain"
+	dbmigrate "github.com/waizbart/aletheia-api/internal/migrate"
 	"github.com/waizbart/aletheia-api/internal/repository"
 )
 
-// TestPostgresLSH_FindCandidatesByPHashes exercises the LSH band pre-filter
-// against a real Postgres. Skipped when DATABASE_URL is not set so that
-// `go test ./...` keeps working without docker-compose.
+// TestPostgresVector_FindCandidatesByPHashes exercises the pgvector bit(256)
+// Hamming pre-filter against a real Postgres. Skipped when DATABASE_URL is not
+// set so that `go test ./...` keeps working without docker-compose.
 //
-// Migrations are applied idempotently at start so the test is self-sufficient
-// even on a fresh database.
-func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
+// Migrations are applied via the golang-migrate runner at start so the test is
+// self-sufficient even on a fresh database. Requires the pgvector/pgvector image.
+func TestPostgresVector_FindCandidatesByPHashes(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping postgres integration test (start docker-compose to enable)")
@@ -41,7 +41,9 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 		t.Skipf("cannot reach postgres: %v", err)
 	}
 
-	applyMigrations(t, ctx, db)
+	if err := dbmigrate.Run(dsn); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
 
 	if _, err := db.ExecContext(ctx, "TRUNCATE certificates CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -106,27 +108,27 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 		t.Fatalf("save no-phash cert: %v", err)
 	}
 
-	t.Run("phash_bands persists exactly 32 rows per cert with phash", func(t *testing.T) {
-		var count int
+	t.Run("phash_bits is a populated 256-bit vector for cert with phash", func(t *testing.T) {
+		var length int
 		if err := db.QueryRowContext(ctx,
-			"SELECT count(*) FROM phash_bands WHERE cert_id = $1::uuid", refCert.ID,
-		).Scan(&count); err != nil {
-			t.Fatalf("count bands: %v", err)
+			"SELECT length(phash_bits) FROM certificates WHERE id = $1::uuid", refCert.ID,
+		).Scan(&length); err != nil {
+			t.Fatalf("read phash_bits length: %v", err)
 		}
-		if count != domain.PHashBandCount {
-			t.Fatalf("expected %d band rows, got %d", domain.PHashBandCount, count)
+		if length != 256 {
+			t.Fatalf("expected phash_bits to be 256 bits, got %d", length)
 		}
 	})
 
-	t.Run("no bands persisted for cert without phash", func(t *testing.T) {
-		var count int
+	t.Run("phash_bits is NULL for cert without phash", func(t *testing.T) {
+		var isNull bool
 		if err := db.QueryRowContext(ctx,
-			"SELECT count(*) FROM phash_bands WHERE cert_id = $1::uuid", noHashCert.ID,
-		).Scan(&count); err != nil {
-			t.Fatalf("count bands: %v", err)
+			"SELECT phash_bits IS NULL FROM certificates WHERE id = $1::uuid", noHashCert.ID,
+		).Scan(&isNull); err != nil {
+			t.Fatalf("read phash_bits null: %v", err)
 		}
-		if count != 0 {
-			t.Fatalf("expected 0 band rows for non-image cert, got %d", count)
+		if !isNull {
+			t.Fatal("expected phash_bits to be NULL for non-image cert")
 		}
 	})
 
@@ -211,30 +213,6 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 			t.Fatalf("commitment mismatch: got %x want %x", *got.FeatureCommitment, commit)
 		}
 	})
-}
-
-func applyMigrations(t *testing.T, ctx context.Context, db *sql.DB) {
-	t.Helper()
-	dir := os.Getenv("MIGRATIONS_DIR")
-	if dir == "" {
-		dir = "../../migrations"
-	}
-	files, err := filepath.Glob(filepath.Join(dir, "*.sql"))
-	if err != nil {
-		t.Fatalf("list migrations: %v", err)
-	}
-	if len(files) == 0 {
-		t.Skipf("no migrations found under %s", dir)
-	}
-	for _, f := range files {
-		body, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read migration %s: %v", f, err)
-		}
-		if _, err := db.ExecContext(ctx, string(body)); err != nil {
-			t.Fatalf("apply migration %s: %v", f, err)
-		}
-	}
 }
 
 func containsCert(hits []*domain.Certificate, id string) bool {

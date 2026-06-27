@@ -2,6 +2,10 @@
 -- Band layout: 32 bands of 8 bits each (band_idx 0..31 -> phash byte at that index).
 -- Lookup: candidate emits 4 rotation variants × 32 bands = 128 (band_idx, band_value)
 -- pairs; the composite index turns the previous full-table scan into an index probe.
+--
+-- NOTE: migration 004 replaces this LSH prefilter with a pgvector bit(256) HNSW
+-- index and drops the phash_bands table. It is kept here so the schema history
+-- stays linear and reversible.
 
 ALTER TABLE certificates
     ADD COLUMN IF NOT EXISTS feature_commitment BYTEA;

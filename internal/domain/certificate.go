@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+// Anchor status values for the asynchronous on-chain anchoring outbox.
+const (
+	AnchorPending   = "pending"
+	AnchorAnchoring = "anchoring"
+	AnchorAnchored  = "anchored"
+	AnchorFailed    = "failed"
+)
+
 type Certificate struct {
 	ID                string
 	ContentHash       string
@@ -19,6 +27,13 @@ type Certificate struct {
 	TxHash            string
 	BlockNumber       uint64
 	CreatedAt         time.Time
+
+	// AnchorStatus tracks the on-chain anchoring lifecycle: pending -> anchoring
+	// -> anchored (or failed). Set to AnchorPending at certify time; the anchor
+	// worker advances it.
+	AnchorStatus   string
+	AnchorAttempts int
+	AnchoredAt     *time.Time
 }
 
 func HashContent(r io.Reader) (string, error) {

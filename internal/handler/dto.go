@@ -9,22 +9,24 @@ import (
 )
 
 type certDTO struct {
-	ID          string `json:"id"`
-	ContentHash string `json:"content_hash"`
-	Registrant  string `json:"registrant"`
-	TxHash      string `json:"tx_hash"`
-	BlockNumber uint64 `json:"block_number"`
-	CreatedAt   string `json:"created_at"`
+	ID           string `json:"id"`
+	ContentHash  string `json:"content_hash"`
+	Registrant   string `json:"registrant"`
+	TxHash       string `json:"tx_hash"`
+	BlockNumber  uint64 `json:"block_number"`
+	AnchorStatus string `json:"anchor_status"`
+	CreatedAt    string `json:"created_at"`
 }
 
 func toCertDTO(c *domain.Certificate) certDTO {
 	return certDTO{
-		ID:          c.ID,
-		ContentHash: c.ContentHash,
-		Registrant:  c.Registrant,
-		TxHash:      c.TxHash,
-		BlockNumber: c.BlockNumber,
-		CreatedAt:   c.CreatedAt.Format(time.RFC3339),
+		ID:           c.ID,
+		ContentHash:  c.ContentHash,
+		Registrant:   c.Registrant,
+		TxHash:       c.TxHash,
+		BlockNumber:  c.BlockNumber,
+		AnchorStatus: c.AnchorStatus,
+		CreatedAt:    c.CreatedAt.Format(time.RFC3339),
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,21 +28,54 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	_ "github.com/lib/pq"
 
+	"github.com/waizbart/aletheia-api/internal/anchor"
 	"github.com/waizbart/aletheia-api/internal/feature"
 	"github.com/waizbart/aletheia-api/internal/handler"
+	dbmigrate "github.com/waizbart/aletheia-api/internal/migrate"
 	"github.com/waizbart/aletheia-api/internal/repository"
 	"github.com/waizbart/aletheia-api/internal/testdata"
 	"github.com/waizbart/aletheia-api/internal/usecase"
 )
 
+// API keys wired into the e2e auth middleware. Each registrant used by the tests
+// maps to its own key so the authenticated identity (and therefore the persisted
+// registrant) matches what the assertions expect.
+const defaultAPIKey = "e2e-default-key"
+
+var registrantKeys = map[string]string{
+	"alice": "alice-key",
+	"bob":   "bob-key",
+	"carol": "carol-key",
+	"dan":   "dan-key",
+}
+
+// e2eAuthKeys is the key->identity map handed to handler.APIKeyAuth.
+func e2eAuthKeys() map[string]string {
+	keys := map[string]string{defaultAPIKey: "default"}
+	for name, key := range registrantKeys {
+		keys[key] = name
+	}
+	return keys
+}
+
+// apiKeyFor returns the API key whose identity equals registrant, or the default
+// key (used by requests that don't care about the registrant, e.g. verify).
+func apiKeyFor(registrant string) string {
+	if k, ok := registrantKeys[registrant]; ok {
+		return k
+	}
+	return defaultAPIKey
+}
+
 var testdataDir = testdata.Curated("aletheia")
 
 type e2eEnv struct {
-	server   *httptest.Server
-	db       *sql.DB
-	s3       *s3.Client
-	bucket   string
-	cleanup  func()
+	server  *httptest.Server
+	db      *sql.DB
+	s3      *s3.Client
+	bucket  string
+	chain   *fakeChain
+	cleanup func()
 }
 
 type fakeChain struct {
@@ -80,6 +114,11 @@ func setupE2E(t *testing.T) *e2eEnv {
 		t.Fatalf("ping db: %v (is docker-compose up?)", err)
 	}
 
+	// Apply schema via the same runner the app uses (requires the pgvector image).
+	if err := dbmigrate.Run(dsn); err != nil {
+		t.Fatalf("apply migrations: %v (is the pgvector/pgvector image in use?)", err)
+	}
+
 	cfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion(region),
 		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
@@ -113,17 +152,36 @@ func setupE2E(t *testing.T) *e2eEnv {
 	certRepo := repository.NewPostgresCertificateRepo(db)
 	chain := &fakeChain{}
 
-	certifyUC := usecase.NewCertifyUseCase(certRepo, chain, extractor, blobStore)
+	// Background anchor worker: certify persists rows as pending and this worker
+	// anchors them via the fake chain. Short interval so tests observe anchoring
+	// quickly. Lifecycle is tied to workerCtx, cancelled in cleanup.
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	worker := anchor.NewWorker(certRepo, chain, 50*time.Millisecond, 16, 5)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = worker.Run(workerCtx)
+	}()
+
+	certifyUC := usecase.NewCertifyUseCase(certRepo, extractor, blobStore)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor, blobStore)
 	deleteUC := usecase.NewDeleteUseCase(certRepo, blobStore)
 	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC)
 
 	mux := http.NewServeMux()
 	certHandler.RegisterRoutes(mux)
-	server := httptest.NewServer(mux)
+
+	// Exercise the production middleware that gates the API: rate limit (high
+	// burst so it never trips in tests) then API-key auth.
+	rateLimiter := handler.NewRateLimiter(10000, 10000)
+	wrapped := rateLimiter.Middleware(handler.APIKeyAuth(e2eAuthKeys())(mux))
+	server := httptest.NewServer(wrapped)
 
 	cleanup := func() {
 		server.Close()
+		cancelWorker()
+		wg.Wait()
 		extractor.Close()
 		_ = db.Close()
 	}
@@ -133,6 +191,7 @@ func setupE2E(t *testing.T) *e2eEnv {
 		db:      db,
 		s3:      s3Client,
 		bucket:  bucket,
+		chain:   chain,
 		cleanup: cleanup,
 	}
 }
@@ -195,12 +254,13 @@ func sha256Hex(b []byte) string {
 }
 
 type certResp struct {
-	ID          string `json:"id"`
-	ContentHash string `json:"content_hash"`
-	Registrant  string `json:"registrant"`
-	TxHash      string `json:"tx_hash"`
-	BlockNumber uint64 `json:"block_number"`
-	CreatedAt   string `json:"created_at"`
+	ID           string `json:"id"`
+	ContentHash  string `json:"content_hash"`
+	Registrant   string `json:"registrant"`
+	TxHash       string `json:"tx_hash"`
+	BlockNumber  uint64 `json:"block_number"`
+	AnchorStatus string `json:"anchor_status"`
+	CreatedAt    string `json:"created_at"`
 }
 
 type verifyResp struct {
@@ -215,9 +275,9 @@ type errResp struct {
 func postCertify(t *testing.T, env *e2eEnv, filename, contentType string, body []byte, registrant string) (int, []byte) {
 	t.Helper()
 	req := newMultipartReq(t, http.MethodPost, env.server.URL+"/certificates", filename, contentType, body)
-	if registrant != "" {
-		req.Header.Set("X-Registrant", registrant)
-	}
+	// The registrant is derived from the authenticated API-key identity, so send
+	// the key whose identity matches the desired registrant.
+	req.Header.Set("X-API-Key", apiKeyFor(registrant))
 	return doRequest(t, req)
 }
 
@@ -252,7 +312,29 @@ func getVerifyHash(t *testing.T, env *e2eEnv, hash string) (int, []byte) {
 	if err != nil {
 		t.Fatalf("new req: %v", err)
 	}
+	req.Header.Set("X-API-Key", defaultAPIKey)
 	return doRequest(t, req)
+}
+
+// waitForAnchored polls verify-by-hash until the certificate's anchor worker has
+// run (tx_hash populated / status anchored), or fails after a short timeout.
+func waitForAnchored(t *testing.T, env *e2eEnv, hash string) certResp {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		status, body := getVerifyHash(t, env, hash)
+		if status == http.StatusOK {
+			v := decodeVerify(t, body)
+			if v.Certificate != nil && v.Certificate.TxHash != "" &&
+				v.Certificate.AnchorStatus == "anchored" {
+				return *v.Certificate
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("certificate %s was not anchored before timeout (last status=%d body=%s)", hash, status, body)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func newMultipartReq(t *testing.T, method, url, filename, contentType string, body []byte) *http.Request {
@@ -285,6 +367,9 @@ func newMultipartReqResult(method, url, filename, contentType string, body []byt
 		return nil, fmt.Errorf("new req: %w", err)
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
+	// Authenticate by default; postCertify overrides with a registrant-specific
+	// key when it needs the persisted registrant to match.
+	req.Header.Set("X-API-Key", defaultAPIKey)
 	return req, nil
 }
 

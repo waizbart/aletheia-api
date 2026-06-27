@@ -16,6 +16,9 @@ type mockRepo struct {
 	findByHashFn              func(ctx context.Context, hash string) (*domain.Certificate, error)
 	findCandidatesByPHashesFn func(ctx context.Context, phashes [][32]byte, maxDistance, topK int) ([]*domain.Certificate, error)
 	deleteFn                  func(ctx context.Context, hash string) error
+	findPendingAnchorsFn      func(ctx context.Context, limit, maxAttempts int) ([]*domain.Certificate, error)
+	markAnchoredFn            func(ctx context.Context, id, txHash string, blockNum uint64) error
+	markAnchorFailedFn        func(ctx context.Context, id, errMsg string, maxAttempts int) error
 }
 
 func (m *mockRepo) Save(ctx context.Context, cert *domain.Certificate) error {
@@ -40,17 +43,25 @@ func (m *mockRepo) Delete(ctx context.Context, hash string) error {
 	return m.deleteFn(ctx, hash)
 }
 
-type mockBlockchain struct {
-	registerHashFn     func(ctx context.Context, contentHash, featureCommitment string) (string, uint64, error)
-	isHashRegisteredFn func(ctx context.Context, hash string) (bool, error)
+func (m *mockRepo) FindPendingAnchors(ctx context.Context, limit, maxAttempts int) ([]*domain.Certificate, error) {
+	if m.findPendingAnchorsFn == nil {
+		return nil, nil
+	}
+	return m.findPendingAnchorsFn(ctx, limit, maxAttempts)
 }
 
-func (m *mockBlockchain) RegisterHash(ctx context.Context, contentHash, featureCommitment string) (string, uint64, error) {
-	return m.registerHashFn(ctx, contentHash, featureCommitment)
+func (m *mockRepo) MarkAnchored(ctx context.Context, id, txHash string, blockNum uint64) error {
+	if m.markAnchoredFn == nil {
+		return nil
+	}
+	return m.markAnchoredFn(ctx, id, txHash, blockNum)
 }
 
-func (m *mockBlockchain) IsHashRegistered(ctx context.Context, hash string) (bool, error) {
-	return m.isHashRegisteredFn(ctx, hash)
+func (m *mockRepo) MarkAnchorFailed(ctx context.Context, id, errMsg string, maxAttempts int) error {
+	if m.markAnchorFailedFn == nil {
+		return nil
+	}
+	return m.markAnchorFailedFn(ctx, id, errMsg, maxAttempts)
 }
 
 type mockExtractor struct {

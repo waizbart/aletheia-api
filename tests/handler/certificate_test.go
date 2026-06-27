@@ -80,6 +80,32 @@ func TestHandleCertify_ValidUpload(t *testing.T) {
 	}
 }
 
+func TestHandleCertify_DerivesRegistrantFromAuthenticatedIdentity(t *testing.T) {
+	var gotRegistrant string
+	cert := &mockCertifier{executeFn: func(_ context.Context, in usecase.CertifyInput) (*usecase.CertifyOutput, error) {
+		gotRegistrant = in.Registrant
+		return &usecase.CertifyOutput{Certificate: &domain.Certificate{ID: "1", ContentHash: "abc", Registrant: in.Registrant, CreatedAt: fixedTime}}, nil
+	}}
+	mux := setupMux(cert, &mockVerifier{})
+
+	// Wrap with auth so a valid key injects the identity the handler should use,
+	// even though the client also (mis)declares a different X-Registrant header.
+	h := handler.APIKeyAuth(map[string]string{"k": "alice"})(mux)
+
+	req := newUploadRequest(t, http.MethodPost, "/certificates", "image/png", []byte("img"))
+	req.Header.Set("X-API-Key", "k")
+	req.Header.Set("X-Registrant", "attacker")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", rr.Code)
+	}
+	if gotRegistrant != "alice" {
+		t.Errorf("registrant = %q, want alice (from API key identity, not header)", gotRegistrant)
+	}
+}
+
 func TestHandleCertify_MissingFile(t *testing.T) {
 	mux := setupMux(&mockCertifier{}, &mockVerifier{})
 

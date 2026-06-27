@@ -18,7 +18,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 	tests := []struct {
 		name      string
 		repo      *mockRepo
-		chain     *mockBlockchain
 		extractor *mockExtractor
 		blobs     *mockBlobStore
 		input     usecase.CertifyInput
@@ -44,11 +43,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 					return nil
 				},
 			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
-					return "0xabc", 1, nil
-				},
-			},
 			extractor: &mockExtractor{},
 			blobs:     &mockBlobStore{},
 			input: usecase.CertifyInput{
@@ -57,7 +51,7 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 			},
 		},
 		{
-			name: "happy path image with signature and blob",
+			name: "happy path image is persisted as pending without a tx hash",
 			repo: &mockRepo{
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
@@ -79,18 +73,15 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 					if *cert.FeatureCommitment != expected {
 						t.Fatalf("feature commitment on cert does not match domain helper")
 					}
+					// Anchoring is now asynchronous: the row must be saved pending
+					// with no tx hash yet.
+					if cert.AnchorStatus != domain.AnchorPending {
+						t.Fatalf("anchor status = %q, want %q", cert.AnchorStatus, domain.AnchorPending)
+					}
+					if cert.TxHash != "" {
+						t.Fatalf("expected empty tx hash at certify time, got %q", cert.TxHash)
+					}
 					return nil
-				},
-			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, contentHash, featureCommitment string) (string, uint64, error) {
-					if len(contentHash) != 64 {
-						t.Fatalf("contentHash forwarded to chain has wrong length: %d", len(contentHash))
-					}
-					if len(featureCommitment) != 64 {
-						t.Fatalf("featureCommitment forwarded to chain has wrong length: %d", len(featureCommitment))
-					}
-					return "0xabc", 1, nil
 				},
 			},
 			extractor: &mockExtractor{
@@ -113,6 +104,11 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 				Content:    bytes.NewReader(sampleJPEGForCertify(t)),
 				Registrant: "tester",
 			},
+			check: func(t *testing.T, out *usecase.CertifyOutput) {
+				if out.Certificate.AnchorStatus != domain.AnchorPending {
+					t.Errorf("output anchor status = %q, want pending", out.Certificate.AnchorStatus)
+				}
+			},
 		},
 		{
 			name: "extractor failure does not block certify",
@@ -128,11 +124,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 						t.Fatal("expected pHash even when extractor fails")
 					}
 					return nil
-				},
-			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
-					return "0xabc", 1, nil
 				},
 			},
 			extractor: &mockExtractor{
@@ -153,7 +144,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 					return nil, nil
 				},
 			},
-			chain:     &mockBlockchain{},
 			extractor: &mockExtractor{},
 			blobs: &mockBlobStore{
 				putFn: func(_ context.Context, _ string, _ []byte) error {
@@ -167,13 +157,30 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 			wantErr: "storing image blob",
 		},
 		{
-			name: "already certified",
+			name: "already certified (up-front check)",
 			repo: &mockRepo{
 				findByHashFn: func(_ context.Context, hash string) (*domain.Certificate, error) {
 					return &domain.Certificate{ContentHash: hash}, nil
 				},
 			},
-			chain:     &mockBlockchain{},
+			extractor: &mockExtractor{},
+			blobs:     &mockBlobStore{},
+			input: usecase.CertifyInput{
+				Content:    strings.NewReader("test content"),
+				Registrant: "tester",
+			},
+			wantErr: "already certified",
+		},
+		{
+			name: "already certified (unique race on save)",
+			repo: &mockRepo{
+				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
+					return nil, nil
+				},
+				saveFn: func(_ context.Context, _ *domain.Certificate) error {
+					return domain.ErrAlreadyCertified
+				},
+			},
 			extractor: &mockExtractor{},
 			blobs:     &mockBlobStore{},
 			input: usecase.CertifyInput{
@@ -185,7 +192,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 		{
 			name:      "hash error",
 			repo:      &mockRepo{},
-			chain:     &mockBlockchain{},
 			extractor: &mockExtractor{},
 			blobs:     &mockBlobStore{},
 			input: usecase.CertifyInput{
@@ -201,7 +207,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 					return nil, errors.New("db error")
 				},
 			},
-			chain:     &mockBlockchain{},
 			extractor: &mockExtractor{},
 			blobs:     &mockBlobStore{},
 			input: usecase.CertifyInput{
@@ -211,26 +216,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 			wantErr: "checking existing",
 		},
 		{
-			name: "blockchain register error",
-			repo: &mockRepo{
-				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
-					return nil, nil
-				},
-			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
-					return "", 0, errors.New("chain error")
-				},
-			},
-			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
-			input: usecase.CertifyInput{
-				Content:    strings.NewReader("test content"),
-				Registrant: "tester",
-			},
-			wantErr: "registering on chain",
-		},
-		{
 			name: "save error",
 			repo: &mockRepo{
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
@@ -238,11 +223,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 				},
 				saveFn: func(_ context.Context, _ *domain.Certificate) error {
 					return errors.New("save error")
-				},
-			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
-					return "0xabc", 1, nil
 				},
 			},
 			extractor: &mockExtractor{},
@@ -257,7 +237,7 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uc := usecase.NewCertifyUseCase(tt.repo, tt.chain, tt.extractor, tt.blobs)
+			uc := usecase.NewCertifyUseCase(tt.repo, tt.extractor, tt.blobs)
 			out, err := uc.Execute(context.Background(), tt.input)
 
 			if tt.wantErr != "" {
@@ -278,6 +258,9 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 			}
 			if out.Certificate.Registrant != tt.input.Registrant {
 				t.Errorf("registrant = %q, want %q", out.Certificate.Registrant, tt.input.Registrant)
+			}
+			if out.Certificate.AnchorStatus != domain.AnchorPending {
+				t.Errorf("anchor status = %q, want pending", out.Certificate.AnchorStatus)
 			}
 			if tt.check != nil {
 				tt.check(t, out)

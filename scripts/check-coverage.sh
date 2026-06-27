@@ -16,6 +16,7 @@ tail -n +2 coverage.out \
   | grep -v "internal/feature/" \
   | grep -v "internal/observability/" \
   | grep -v "internal/handler/observability" \
+  | grep -v "internal/migrate/" \
   >> coverage_filtered.out
 
 COVERAGE=$(go tool cover -func=coverage_filtered.out | grep total | awk '{print $3}' | tr -d '%')

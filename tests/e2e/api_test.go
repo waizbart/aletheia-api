@@ -33,11 +33,25 @@ func TestE2E_Certify_Image_HappyPath(t *testing.T) {
 	if cert.Registrant != "alice" {
 		t.Errorf("Registrant = %s, want alice", cert.Registrant)
 	}
-	if cert.TxHash == "" {
-		t.Error("TxHash empty")
+	// Anchoring is asynchronous: certify responds immediately with a pending,
+	// not-yet-anchored certificate.
+	if cert.AnchorStatus != "pending" {
+		t.Errorf("AnchorStatus = %s, want pending", cert.AnchorStatus)
+	}
+	if cert.TxHash != "" {
+		t.Errorf("TxHash = %s, want empty at certify time", cert.TxHash)
 	}
 	if cert.ID == "" {
 		t.Error("ID empty")
+	}
+
+	// The background worker then anchors it; tx_hash and status converge.
+	anchored := waitForAnchored(t, env, wantHash)
+	if anchored.TxHash == "" {
+		t.Error("anchored certificate still has empty TxHash")
+	}
+	if anchored.AnchorStatus != "anchored" {
+		t.Errorf("anchored status = %s, want anchored", anchored.AnchorStatus)
 	}
 
 	phashLen, descLen, kpLen, blobKey := assertRowExists(t, env.db, wantHash)
@@ -140,6 +154,7 @@ func TestE2E_Certify_MissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new req: %v", err)
 	}
+	req.Header.Set("X-API-Key", defaultAPIKey)
 	status, _ := doRequest(t, req)
 	if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", status)
@@ -153,6 +168,33 @@ func TestE2E_Certify_UnsupportedMediaType(t *testing.T) {
 	status, _ := postCertify(t, env, "evil.exe", "application/x-msdownload", []byte("MZ"), "")
 	if status != http.StatusUnsupportedMediaType {
 		t.Fatalf("status = %d, want 415", status)
+	}
+}
+
+// --- Authentication ----------------------------------------------------------
+
+func TestE2E_Certify_RequiresAPIKey(t *testing.T) {
+	env := setupE2E(t)
+	defer env.cleanup()
+
+	body := loadTestdata(t, "aletheia.jpg")
+	req := newMultipartReq(t, http.MethodPost, env.server.URL+"/certificates", "a.jpg", "image/jpeg", body)
+	req.Header.Del("X-API-Key") // strip the default key set by the builder
+	status, _ := doRequest(t, req)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 without API key", status)
+	}
+
+	// Wrong key is also rejected.
+	req = newMultipartReq(t, http.MethodPost, env.server.URL+"/certificates", "a.jpg", "image/jpeg", body)
+	req.Header.Set("X-API-Key", "not-a-real-key")
+	status, _ = doRequest(t, req)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 with invalid API key", status)
+	}
+
+	if n := countCertificates(t, env.db); n != 0 {
+		t.Errorf("unauthenticated requests must not create rows, got %d", n)
 	}
 }
 
@@ -324,6 +366,7 @@ func TestE2E_VerifyByFile_MissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new req: %v", err)
 	}
+	req.Header.Set("X-API-Key", defaultAPIKey)
 	status, _ := doRequest(t, req)
 	if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", status)

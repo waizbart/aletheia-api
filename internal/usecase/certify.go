@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,13 +16,17 @@ import (
 
 type CertifyUseCase struct {
 	repo      CertificateRepository
-	chain     BlockchainService
 	extractor FeatureExtractor
 	blobs     ImageBlobStore
 }
 
-func NewCertifyUseCase(repo CertificateRepository, chain BlockchainService, extractor FeatureExtractor, blobs ImageBlobStore) *CertifyUseCase {
-	return &CertifyUseCase{repo: repo, chain: chain, extractor: extractor, blobs: blobs}
+// NewCertifyUseCase builds the certify workflow. On-chain anchoring is no longer
+// part of the request path: the certificate is persisted with AnchorStatus
+// "pending" and the background anchor worker (internal/anchor) anchors it
+// asynchronously. This removes the blockchain dependency from the synchronous
+// path and fixes the previous double-anchor / orphan-anchor consistency bugs.
+func NewCertifyUseCase(repo CertificateRepository, extractor FeatureExtractor, blobs ImageBlobStore) *CertifyUseCase {
+	return &CertifyUseCase{repo: repo, extractor: extractor, blobs: blobs}
 }
 
 type CertifyInput struct {
@@ -122,22 +127,12 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (out *Ce
 		return nil
 	})
 
-	var txHash string
-	var blockNum uint64
-	if err = observability.StageVoid(ctx, "chain_anchor", func(h observability.StageHandle) error {
-		tx, bn, e := uc.chain.RegisterHash(ctx, contentHash, commitmentHex)
-		if e == nil {
-			h.SetAttrs(
-				observability.Attr{Key: "tx_hash", Value: tx},
-				observability.Attr{Key: "block_number", Value: int64(bn)},
-			)
-		}
-		txHash, blockNum = tx, bn
-		return e
-	}); err != nil {
-		return nil, fmt.Errorf("certify: registering on chain: %w", err)
-	}
-
+	// Persist with AnchorStatus "pending" BEFORE any on-chain work. The
+	// content_hash UNIQUE constraint is the real idempotency gate: of two
+	// concurrent identical requests exactly one INSERT wins, so exactly one row
+	// (and therefore one future anchor) survives. The anchor worker picks the row
+	// up and anchors it asynchronously; a crash here leaves a retryable pending
+	// row rather than spent gas with no record.
 	cert := &domain.Certificate{
 		ContentHash:       contentHash,
 		PHash:             phash,
@@ -145,8 +140,9 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (out *Ce
 		FeatureCommitment: &commitment,
 		ImageBlobKey:      blobKey,
 		Registrant:        in.Registrant,
-		TxHash:            txHash,
-		BlockNumber:       blockNum,
+		TxHash:            "",
+		BlockNumber:       0,
+		AnchorStatus:      domain.AnchorPending,
 		CreatedAt:         time.Now().UTC(),
 	}
 
@@ -154,16 +150,25 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (out *Ce
 		if e := uc.repo.Save(ctx, cert); e != nil {
 			return e
 		}
-		h.SetAttrs(observability.Attr{Key: "cert_id", Value: cert.ID})
+		h.SetAttrs(
+			observability.Attr{Key: "cert_id", Value: cert.ID},
+			observability.Attr{Key: "anchor_status", Value: cert.AnchorStatus},
+		)
 		return nil
 	}); err != nil {
+		// A concurrent request that won the UNIQUE race surfaces here as a
+		// duplicate; map it to the same verdict as the up-front check.
+		if errors.Is(err, domain.ErrAlreadyCertified) {
+			setVerdict(observability.Verdict{Outcome: "duplicate", Detail: map[string]any{"content_hash": contentHash}})
+			return nil, fmt.Errorf("certify: %w", domain.ErrAlreadyCertified)
+		}
 		return nil, fmt.Errorf("certify: saving certificate: %w", err)
 	}
 
 	setVerdict(observability.Verdict{Outcome: "certified", Detail: map[string]any{
-		"content_hash": contentHash,
-		"tx_hash":      txHash,
-		"cert_id":      cert.ID,
+		"content_hash":  contentHash,
+		"anchor_status": cert.AnchorStatus,
+		"cert_id":       cert.ID,
 	}})
 	return &CertifyOutput{Certificate: cert}, nil
 }

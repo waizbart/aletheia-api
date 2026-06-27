@@ -11,6 +11,16 @@ type CertificateRepository interface {
 	FindByHash(ctx context.Context, contentHash string) (*domain.Certificate, error)
 	FindCandidatesByPHashes(ctx context.Context, phashes [][32]byte, maxDistance, topK int) ([]*domain.Certificate, error)
 	Delete(ctx context.Context, contentHash string) error
+
+	// FindPendingAnchors claims up to limit certificates awaiting on-chain
+	// anchoring (status pending, attempts < maxAttempts), flipping them to
+	// 'anchoring', and returns them.
+	FindPendingAnchors(ctx context.Context, limit, maxAttempts int) ([]*domain.Certificate, error)
+	// MarkAnchored records a successful anchor.
+	MarkAnchored(ctx context.Context, id, txHash string, blockNum uint64) error
+	// MarkAnchorFailed records a failed attempt; the row retries until
+	// maxAttempts, then becomes 'failed'.
+	MarkAnchorFailed(ctx context.Context, id, errMsg string, maxAttempts int) error
 }
 
 type BlockchainService interface {

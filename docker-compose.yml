@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector image (>= 0.7.0) provides the `vector` extension used for the
+    # bit(256) Hamming HNSW index. Schema is applied by the API's golang-migrate
+    # runner on startup, so no docker-entrypoint-initdb.d mount is needed.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: aletheia
@@ -12,7 +15,6 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aletheia"]
       interval: 3s
@@ -85,6 +87,9 @@ services:
       S3_REGION: us-east-1
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4318
       OTEL_SERVICE_NAME: aletheia-api
+      # Required: at least one API key. Format "key:identity,key2:identity2".
+      # Override with strong secrets outside local development.
+      API_KEYS: "dev-local-key:local-dev"
     depends_on:
       postgres:
         condition: service_healthy

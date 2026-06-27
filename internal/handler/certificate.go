@@ -32,9 +32,17 @@ func (h *CertificateHandler) handleCertify(w http.ResponseWriter, r *http.Reques
 	}
 	defer file.Close()
 
+	// Derive the registrant from the authenticated API-key identity, not from a
+	// client-supplied header. Fall back to X-Registrant only when no identity is
+	// in context (e.g. tests that exercise the handler without the auth chain).
+	registrant := IdentityFromContext(r.Context())
+	if registrant == "" {
+		registrant = r.Header.Get("X-Registrant")
+	}
+
 	out, err := h.certify.Execute(r.Context(), usecase.CertifyInput{
 		Content:    file,
-		Registrant: r.Header.Get("X-Registrant"),
+		Registrant: registrant,
 	})
 	if err != nil {
 		status := http.StatusUnprocessableEntity
