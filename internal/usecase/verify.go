@@ -24,11 +24,10 @@ const verifyTopK = 64
 type VerifyUseCase struct {
 	repo      CertificateRepository
 	extractor FeatureExtractor
-	blobs     ImageBlobStore
 }
 
-func NewVerifyUseCase(repo CertificateRepository, extractor FeatureExtractor, blobs ImageBlobStore) *VerifyUseCase {
-	return &VerifyUseCase{repo: repo, extractor: extractor, blobs: blobs}
+func NewVerifyUseCase(repo CertificateRepository, extractor FeatureExtractor) *VerifyUseCase {
+	return &VerifyUseCase{repo: repo, extractor: extractor}
 }
 
 type VerifyInput struct {
@@ -121,7 +120,7 @@ func (uc *VerifyUseCase) Execute(ctx context.Context, in VerifyInput) (out *Veri
 	}
 
 	candSig, err := observability.Stage(ctx, "orb_extract", func(h observability.StageHandle) (*domain.FeatureSignature, error) {
-		sig, _, e := uc.extractor.Compute(ctx, content)
+		sig, e := uc.extractor.Compute(ctx, content)
 		if e == nil {
 			h.SetAttrs(
 				observability.Attr{Key: "keypoints", Value: sig.KeypointCount()},
@@ -150,9 +149,9 @@ func (uc *VerifyUseCase) Execute(ctx context.Context, in VerifyInput) (out *Veri
 	matchStage := rec.StartStage(ctx, "candidate_matching")
 	matchStage.SetAttrs(observability.Attr{Key: "candidates", Value: len(candidates)})
 	for _, c := range candidates {
-		if c.Signature == nil || c.ImageBlobKey == "" {
+		if !c.Signature.HasColorGrid() {
 			ch := matchStage.Child("candidate")
-			ch.Skip("candidato sem assinatura ou imagem armazenada")
+			ch.Skip("candidato sem assinatura ou grade de cores")
 			ch.End()
 			continue
 		}
@@ -160,21 +159,13 @@ func (uc *VerifyUseCase) Execute(ctx context.Context, in VerifyInput) (out *Veri
 		ch := matchStage.Child("candidate")
 		ch.SetAttrs(
 			observability.Attr{Key: "cert_id", Value: c.ID},
-			observability.Attr{Key: "blob_key", Value: c.ImageBlobKey},
+			observability.Attr{Key: "thumb_hash", Value: c.ContentHash},
 		)
 		if c.PHash != nil {
 			ch.SetAttrs(observability.Attr{Key: "hamming", Value: minHamming(phashes, *c.PHash)})
 		}
 
-		refImage, gerr := uc.blobs.Get(ctx, c.ImageBlobKey)
-		if gerr != nil {
-			log.Printf("verify: fetch blob %s: %v", c.ImageBlobKey, gerr)
-			ch.Fail(gerr)
-			ch.End()
-			continue
-		}
-
-		decision, merr := uc.extractor.Match(ctx, c.Signature, candSig, refImage, content)
+		decision, merr := uc.extractor.Match(ctx, c.Signature, candSig, content)
 		if merr != nil {
 			log.Printf("verify: match against %s: %v", c.ID, merr)
 			ch.Fail(merr)

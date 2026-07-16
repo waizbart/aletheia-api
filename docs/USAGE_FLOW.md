@@ -79,7 +79,8 @@ Diferença prática entre os modos:
 - Por arquivo modificado é o caminho caro. Roda OpenCV no candidato
   (ORB + JPEG normalizado), faz prefilter LSH em `phash_bands`,
   calcula Hamming-256 contra cada sobrevivente e finalmente roda
-  `Match` ORB lendo a imagem de referência do S3.
+  `Match` ORB + resíduo de cor contra a grade LAB armazenada no
+  certificado.
 
 ## Notas operacionais
 
@@ -88,7 +89,7 @@ Diferença prática entre os modos:
   de controle de retry.
 - O custo de verificação varia muito. `GET ?hash=` é barato.
   Verificação por arquivo de imagem grande pode ser dezenas de vezes
-  mais cara por causa da extração ORB e do I/O em S3 por candidato.
+  mais cara por causa da extração ORB e do match por candidato.
 - A API ainda não tem autenticação. O campo `Registrant` vem do header
   `X-Registrant` e é apenas registrado, não validado. Em produção isso
   precisa ser combinado com auth real antes de servir como prova de

@@ -29,6 +29,10 @@ const (
 	// point native OpenCV can read out of bounds and crash the process with a
 	// SIGSEGV. Images smaller than this are rejected before DetectAndCompute.
 	minFeatureDimension = 2*orbEdgeThreshold + 1
+
+	// thumbnailLongSide is the long-side pixel size of dashboard thumbnails
+	// rendered from a stored color grid.
+	thumbnailLongSide = 420
 )
 
 type OpenCVExtractor struct{}
@@ -39,22 +43,22 @@ func NewOpenCVExtractor() *OpenCVExtractor {
 
 func (e *OpenCVExtractor) Close() {}
 
-func (e *OpenCVExtractor) Compute(_ context.Context, content []byte) (*domain.FeatureSignature, []byte, error) {
+func (e *OpenCVExtractor) Compute(_ context.Context, content []byte) (*domain.FeatureSignature, error) {
 	bgr, err := decodeBGR(content)
 	if err != nil {
-		return nil, nil, fmt.Errorf("decode image: %w", err)
+		return nil, fmt.Errorf("decode image: %w", err)
 	}
 	defer bgr.Close()
 
 	if bgr.Empty() {
-		return nil, nil, fmt.Errorf("decode image: empty mat")
+		return nil, fmt.Errorf("decode image: empty mat")
 	}
 
 	resized := resizeBGR(bgr, domain.ResizeMax)
 	defer resized.Close()
 
 	if resized.Cols() < minFeatureDimension || resized.Rows() < minFeatureDimension {
-		return nil, nil, fmt.Errorf("image too small for feature extraction: %dx%d (min %d per side)", resized.Cols(), resized.Rows(), minFeatureDimension)
+		return nil, fmt.Errorf("image too small for feature extraction: %dx%d (min %d per side)", resized.Cols(), resized.Rows(), minFeatureDimension)
 	}
 
 	gray := gocv.NewMat()
@@ -70,7 +74,7 @@ func (e *OpenCVExtractor) Compute(_ context.Context, content []byte) (*domain.Fe
 	defer descriptors.Close()
 
 	if descriptors.Empty() || len(keypoints) == 0 {
-		return nil, nil, fmt.Errorf("no features detected")
+		return nil, fmt.Errorf("no features detected")
 	}
 
 	descBytes := descriptors.ToBytes()
@@ -79,24 +83,29 @@ func (e *OpenCVExtractor) Compute(_ context.Context, content []byte) (*domain.Fe
 
 	kpBytes := encodeKeypoints(keypoints)
 
-	jpegBuf, err := gocv.IMEncodeWithParams(gocv.JPEGFileExt, resized, []int{gocv.IMWriteJpegQuality, 85})
-	if err != nil {
-		return nil, nil, fmt.Errorf("encode jpeg: %w", err)
-	}
-	defer jpegBuf.Close()
-
-	jpegBytes := make([]byte, len(jpegBuf.GetBytes()))
-	copy(jpegBytes, jpegBuf.GetBytes())
+	lab := gocv.NewMat()
+	defer lab.Close()
+	gocv.CvtColor(resized, &lab, gocv.ColorBGRToLab)
 
 	return &domain.FeatureSignature{
 		Descriptors: descCopy,
 		Keypoints:   kpBytes,
-	}, jpegBytes, nil
+		ColorGrid:   colorGridOf(lab),
+		RefWidth:    resized.Cols(),
+		RefHeight:   resized.Rows(),
+	}, nil
 }
 
-func (e *OpenCVExtractor) Match(_ context.Context, refSig, candSig *domain.FeatureSignature, refImage, candImage []byte) (domain.MatchDecision, error) {
+// Match compares the stored reference signature against the candidate. The
+// reference side of the color check reads the signature's color grid — the
+// per-cell LAB means captured at certify time — so no reference image bytes
+// are needed; only the candidate image (available at request time) is decoded.
+func (e *OpenCVExtractor) Match(_ context.Context, refSig, candSig *domain.FeatureSignature, candImage []byte) (domain.MatchDecision, error) {
 	if refSig == nil || candSig == nil {
 		return domain.MatchDecision{}, fmt.Errorf("match: nil signature")
+	}
+	if !refSig.HasColorGrid() {
+		return domain.MatchDecision{}, fmt.Errorf("match: reference signature has no color grid")
 	}
 
 	refKp, err := decodeKeypoints(refSig.Keypoints)
@@ -119,21 +128,16 @@ func (e *OpenCVExtractor) Match(_ context.Context, refSig, candSig *domain.Featu
 	}
 	defer candDesc.Close()
 
-	refLab, err := decodeLAB(refImage)
-	if err != nil {
-		return domain.MatchDecision{}, fmt.Errorf("match: ref LAB: %w", err)
-	}
-	defer refLab.Close()
 	candLab, err := decodeLAB(candImage)
 	if err != nil {
 		return domain.MatchDecision{}, fmt.Errorf("match: cand LAB: %w", err)
 	}
 	defer candLab.Close()
 
-	return matchPair(refKp, refDesc, refLab, candKp, candDesc, candLab), nil
+	return matchPair(refKp, refDesc, refSig.ColorGrid, refSig.RefWidth, refSig.RefHeight, candKp, candDesc, candLab), nil
 }
 
-func matchPair(refKp []gocv.KeyPoint, refDesc gocv.Mat, refLab gocv.Mat, candKp []gocv.KeyPoint, candDesc gocv.Mat, candLab gocv.Mat) domain.MatchDecision {
+func matchPair(refKp []gocv.KeyPoint, refDesc gocv.Mat, refGrid []byte, refW, refH int, candKp []gocv.KeyPoint, candDesc gocv.Mat, candLab gocv.Mat) domain.MatchDecision {
 	res := domain.MatchDecision{ColorMean: math.Inf(1), ColorMax: math.Inf(1)}
 	if refDesc.Empty() || candDesc.Empty() || len(refKp) < 4 || len(candKp) < 4 {
 		return res
@@ -181,7 +185,7 @@ func matchPair(refKp []gocv.KeyPoint, refDesc gocv.Mat, refLab gocv.Mat, candKp 
 		}
 	}
 
-	mean, max, cells, coverage := colorResidual(refLab, candLab, H)
+	mean, max, cells, coverage := colorResidual(refGrid, refW, refH, candLab, H)
 	res.Inliers = inliers
 	res.ColorMean = mean
 	res.ColorMax = max
@@ -192,9 +196,9 @@ func matchPair(refKp []gocv.KeyPoint, refDesc gocv.Mat, refLab gocv.Mat, candKp 
 }
 
 // colorResidual warps the candidate back into the reference frame and measures,
-// per grid cell, the LAB distance to the reference. It returns the mean and max
-// per-cell distance, the number of covered cells, and the coverage fraction
-// (covered cells / total grid cells).
+// per grid cell, the LAB distance to the reference's stored per-cell means. It
+// returns the mean and max per-cell distance, the number of covered cells, and
+// the coverage fraction (covered cells / total grid cells).
 //
 // A uniform brightness/exposure shift moves every cell's L channel by roughly
 // the same amount — an identity-preserving edit our taxonomy labels as a match.
@@ -202,7 +206,7 @@ func matchPair(refKp []gocv.KeyPoint, refDesc gocv.Mat, refLab gocv.Mat, candKp 
 // cells) is subtracted before computing each cell's distance. Chroma (a/b) is
 // left untouched, so global colour filters (sepia, hue, saturation) and
 // localized edits (overlays, recolours) still register their full residual.
-func colorResidual(refLab, candLab, H gocv.Mat) (mean, max float64, cells int, coverage float64) {
+func colorResidual(refGrid []byte, rw, rh int, candLab, H gocv.Mat) (mean, max float64, cells int, coverage float64) {
 	if H.Empty() {
 		return math.Inf(1), math.Inf(1), 0, 0
 	}
@@ -212,7 +216,6 @@ func colorResidual(refLab, candLab, H gocv.Mat) (mean, max float64, cells int, c
 		return math.Inf(1), math.Inf(1), 0, 0
 	}
 
-	rh, rw := refLab.Rows(), refLab.Cols()
 	warped := gocv.NewMat()
 	defer warped.Close()
 	gocv.WarpPerspectiveWithParams(candLab, &warped, Hinv, image.Point{X: rw, Y: rh},
@@ -245,14 +248,16 @@ func colorResidual(refLab, candLab, H gocv.Mat) (mean, max float64, cells int, c
 				continue
 			}
 
-			rRegion := refLab.Region(rect)
 			cRegion := warped.Region(rect)
-			rs := rRegion.Mean()
 			cs := cRegion.Mean()
-			rRegion.Close()
 			cRegion.Close()
 
-			d := cellDelta{dl: rs.Val1 - cs.Val1, da: rs.Val2 - cs.Val2, db: rs.Val3 - cs.Val3}
+			off := (gy*grid + gx) * domain.ColorGridChannels
+			d := cellDelta{
+				dl: float64(refGrid[off]) - cs.Val1,
+				da: float64(refGrid[off+1]) - cs.Val2,
+				db: float64(refGrid[off+2]) - cs.Val3,
+			}
 			deltas = append(deltas, d)
 			dls = append(dls, d.dl)
 		}
@@ -290,6 +295,85 @@ func medianFloat(xs []float64) float64 {
 		return xs[n/2]
 	}
 	return (xs[n/2-1] + xs[n/2]) / 2
+}
+
+// colorGridOf encodes the per-cell mean LAB color of lab into the storage
+// layout described by domain.ColorGridBytes: row-major GridSize×GridSize cells,
+// 3 bytes per cell, each channel mean rounded to the nearest integer. The cell
+// rectangles use the same integer division as colorResidual so certify-time
+// means and match-time cells always line up.
+func colorGridOf(lab gocv.Mat) []byte {
+	grid := domain.GridSize
+	rh, rw := lab.Rows(), lab.Cols()
+	out := make([]byte, domain.ColorGridBytes)
+	for gy := 0; gy < grid; gy++ {
+		for gx := 0; gx < grid; gx++ {
+			x0 := rw * gx / grid
+			y0 := rh * gy / grid
+			x1 := rw * (gx + 1) / grid
+			y1 := rh * (gy + 1) / grid
+			region := lab.Region(image.Rect(x0, y0, x1, y1))
+			m := region.Mean()
+			region.Close()
+			off := (gy*grid + gx) * domain.ColorGridChannels
+			out[off] = roundToByte(m.Val1)
+			out[off+1] = roundToByte(m.Val2)
+			out[off+2] = roundToByte(m.Val3)
+		}
+	}
+	return out
+}
+
+func roundToByte(v float64) byte {
+	r := math.Round(v)
+	if r < 0 {
+		return 0
+	}
+	if r > 255 {
+		return 255
+	}
+	return byte(r)
+}
+
+// RenderColorGridPNG renders a stored color grid back to a small PNG at the
+// reference aspect ratio. It backs the observability dashboard's candidate
+// thumbnails now that no reference image is stored.
+func (e *OpenCVExtractor) RenderColorGridPNG(grid []byte, refW, refH int) ([]byte, error) {
+	if len(grid) != domain.ColorGridBytes || refW <= 0 || refH <= 0 {
+		return nil, fmt.Errorf("render color grid: invalid grid (%d bytes, %dx%d)", len(grid), refW, refH)
+	}
+	g := domain.GridSize
+	lab := gocv.NewMatWithSize(g, g, gocv.MatTypeCV8UC3)
+	defer lab.Close()
+	for gy := 0; gy < g; gy++ {
+		for gx := 0; gx < g; gx++ {
+			off := (gy*g + gx) * domain.ColorGridChannels
+			lab.SetUCharAt(gy, gx*3+0, grid[off])
+			lab.SetUCharAt(gy, gx*3+1, grid[off+1])
+			lab.SetUCharAt(gy, gx*3+2, grid[off+2])
+		}
+	}
+	bgr := gocv.NewMat()
+	defer bgr.Close()
+	gocv.CvtColor(lab, &bgr, gocv.ColorLabToBGR)
+
+	long := refW
+	if refH > long {
+		long = refH
+	}
+	scale := float64(thumbnailLongSide) / float64(long)
+	sized := gocv.NewMat()
+	defer sized.Close()
+	gocv.Resize(bgr, &sized, image.Point{X: int(float64(refW) * scale), Y: int(float64(refH) * scale)}, 0, 0, gocv.InterpolationLinear)
+
+	buf, err := gocv.IMEncode(gocv.PNGFileExt, sized)
+	if err != nil {
+		return nil, fmt.Errorf("render color grid: encode png: %w", err)
+	}
+	defer buf.Close()
+	out := make([]byte, len(buf.GetBytes()))
+	copy(out, buf.GetBytes())
+	return out, nil
 }
 
 func decodeBGR(content []byte) (gocv.Mat, error) {

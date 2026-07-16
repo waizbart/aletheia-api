@@ -14,13 +14,13 @@ import (
 	"github.com/waizbart/aletheia-api/internal/observability"
 )
 
-// fakeBlobReader serves a fixed set of blobs keyed by name.
-type fakeBlobReader map[string][]byte
+// fakeThumbnails serves fixed PNG payloads keyed by content hash.
+type fakeThumbnails map[string][]byte
 
-func (f fakeBlobReader) Get(_ context.Context, key string) ([]byte, error) {
-	data, ok := f[key]
+func (f fakeThumbnails) Execute(_ context.Context, hash string) ([]byte, error) {
+	data, ok := f[hash]
 	if !ok {
-		return nil, fmt.Errorf("not found: %s", key)
+		return nil, fmt.Errorf("not found: %s", hash)
 	}
 	return data, nil
 }
@@ -38,12 +38,12 @@ func drive(c *observability.Collector) {
 }
 
 func newObsServer(c *observability.Collector) *httptest.Server {
-	return newObsServerWithBlobs(c, fakeBlobReader{})
+	return newObsServerWithThumbs(c, fakeThumbnails{})
 }
 
-func newObsServerWithBlobs(c *observability.Collector, blobs BlobReader) *httptest.Server {
+func newObsServerWithThumbs(c *observability.Collector, thumbs ThumbnailProvider) *httptest.Server {
 	mux := http.NewServeMux()
-	RegisterObservabilityRoutes(mux, c, blobs)
+	RegisterObservabilityRoutes(mux, c, thumbs)
 	return httptest.NewServer(mux)
 }
 
@@ -92,26 +92,26 @@ func TestObservability_TracesHistory(t *testing.T) {
 	}
 }
 
-func TestObservability_Blob(t *testing.T) {
-	// A 1x1 JPEG-ish payload is unnecessary; DetectContentType only sniffs bytes.
-	validKey := strings.Repeat("a", 64) + ".jpg"
-	payload := []byte("image-bytes")
+func TestObservability_Thumbnail(t *testing.T) {
+	validHash := strings.Repeat("a", 64)
+	payload := []byte("png-bytes")
 	c := observability.NewCollector(10)
-	srv := newObsServerWithBlobs(c, fakeBlobReader{validKey: payload})
+	srv := newObsServerWithThumbs(c, fakeThumbnails{validHash: payload})
 	defer srv.Close()
 
 	cases := []struct {
-		name, key  string
+		name, hash string
 		wantStatus int
 	}{
-		{"valid", validKey, http.StatusOK},
-		{"missing", strings.Repeat("b", 64) + ".jpg", http.StatusNotFound},
-		{"too short", "short.jpg", http.StatusBadRequest},
-		{"wrong ext", strings.Repeat("a", 64) + ".png", http.StatusBadRequest},
+		{"valid", validHash, http.StatusOK},
+		{"missing", strings.Repeat("b", 64), http.StatusNotFound},
+		{"too short", "short", http.StatusBadRequest},
+		{"legacy blob key format", strings.Repeat("a", 64) + ".jpg", http.StatusBadRequest},
+		{"uppercase hex", strings.Repeat("A", 64), http.StatusBadRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := http.Get(srv.URL + "/observability/blob/" + tc.key)
+			res, err := http.Get(srv.URL + "/observability/thumb/" + tc.hash)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,6 +122,9 @@ func TestObservability_Blob(t *testing.T) {
 			if tc.wantStatus == http.StatusOK {
 				if cc := res.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
 					t.Fatalf("missing immutable cache header: %q", cc)
+				}
+				if ct := res.Header.Get("Content-Type"); ct != "image/png" {
+					t.Fatalf("content-type = %q, want image/png", ct)
 				}
 			}
 		})

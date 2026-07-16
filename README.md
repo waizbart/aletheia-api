@@ -16,28 +16,28 @@ Para a visão completa do sistema, ver:
 ## Como funciona
 
 1. **Certificar.** Uma fonte confiável envia uma imagem. A API calcula
-   SHA-256, extrai pHash + descritores ORB via OpenCV, salva o JPEG
-   normalizado no blob store (S3/MinIO), ancora o par
+   SHA-256, extrai pHash + descritores ORB + grade de cores LAB
+   (128×128 médias por célula) via OpenCV, ancora o par
    `(contentHash, featureCommitment)` numa transação EVM e persiste o
-   certificado em PostgreSQL.
+   certificado em PostgreSQL. Nenhuma imagem é armazenada.
 2. **Verificar.** Qualquer um pode consultar por hash
    (`GET /certificates/verify?hash=`) ou enviar uma imagem
    (`POST /certificates/verify`). O fluxo por imagem tenta primeiro o
    match exato por SHA-256 e, na ausência, cai num caminho de
    similaridade visual usando LSH em `phash_bands`, Hamming-256 e
-   re-check ORB contra a imagem original do blob store.
+   re-check ORB + resíduo de cor contra a grade de cores armazenada no
+   certificado.
 
 ## Pré-requisitos
 
 - Docker e Docker Compose v2 (recomendado); ou
 - Go 1.22+, PostgreSQL 15+, OpenCV instalado no host (necessário para
-  o `gocv`), um endpoint JSON-RPC EVM (Anvil/Polygon) e um S3
-  compatível (S3, MinIO).
+  o `gocv`) e um endpoint JSON-RPC EVM (Anvil/Polygon).
 
 ## Subir com Docker (recomendado)
 
-O `docker-compose.yml` sobe Postgres, Anvil, MinIO (com bucket
-criado pelo `minio-init`) e a API, já com as envs cabeadas entre eles.
+O `docker-compose.yml` sobe Postgres, Anvil, Jaeger e a API, já com as
+envs cabeadas entre eles.
 
 ```bash
 git clone https://github.com/waizbart/aletheia-api.git
@@ -53,15 +53,13 @@ Endpoints disponíveis:
 - Health em `http://localhost:8080/health`
 - Painel de observabilidade em `http://localhost:8080/observability`
 - Jaeger UI em `http://localhost:16686`
-- Console MinIO em `http://localhost:9001` (usuário/senha
-  `minioadmin`)
 - RPC Anvil em `http://localhost:8545`
 
 Para derrubar:
 
 ```bash
 docker compose down       # mantém volumes
-docker compose down -v    # apaga pgdata e miniodata
+docker compose down -v    # apaga pgdata
 ```
 
 ## Subir só a API local (Go) com a infra no Docker
@@ -69,7 +67,7 @@ docker compose down -v    # apaga pgdata e miniodata
 Útil para iterar mais rápido sem rebuildar a imagem:
 
 ```bash
-docker compose up -d postgres anvil minio minio-init
+docker compose up -d postgres anvil
 cp .env.example .env
 go run ./cmd/api
 ```
@@ -88,8 +86,8 @@ compose.
    ```
 
 2. Edite `.env` com sua conexão Postgres, RPC EVM, endereço de
-   transmissor (`FROM_ADDRESS`), endereço do contrato âncora
-   (`CONTRACT_ADDRESS`) e credenciais do bucket S3.
+   transmissor (`FROM_ADDRESS`) e endereço do contrato âncora
+   (`CONTRACT_ADDRESS`).
 
 3. Rode as migrações na ordem:
 
@@ -97,12 +95,10 @@ compose.
    psql "$DATABASE_URL" -f migrations/001_create_certificates.sql
    psql "$DATABASE_URL" -f migrations/002_perceptual_v2.sql
    psql "$DATABASE_URL" -f migrations/003_phash_bands_and_commitment.sql
+   psql "$DATABASE_URL" -f migrations/004_color_grid.sql
    ```
 
-4. Garanta que o bucket S3 existe (no MinIO local o
-   `docker compose` já cria via `minio-init`).
-
-5. Suba a API:
+4. Suba a API:
 
    ```bash
    go run ./cmd/api
@@ -124,7 +120,7 @@ expõe isso de duas formas:
 - **Painel ao vivo** em
   [http://localhost:8080/observability](http://localhost:8080/observability):
   acompanha em tempo real (via Server-Sent Events) cada etapa do pipeline
-  acendendo — `SHA-256 ➜ pHash ➜ ORB ➜ commitment ➜ blockchain ➜ S3 ➜
+  acendendo — `SHA-256 ➜ pHash ➜ ORB ➜ commitment ➜ blockchain ➜
   Postgres` na certificação, e `pHash variants ➜ LSH ➜ comparação de
   candidatos` na verificação. Mostra os valores reais de cada etapa, a
   latência por etapa e total, a decisão de verificação (distância de
@@ -230,10 +226,9 @@ Ambos os endpoints respondem com o mesmo formato:
 DELETE /certificates/<sha256-hex>
 ```
 
-Apaga o certificado pelo SHA-256 e a imagem normalizada associada no
-blob store (S3/MinIO). A imagem é removida antes do registro no banco;
-como o `DeleteObject` é idempotente, uma nova tentativa converge em
-caso de falha parcial.
+Apaga o certificado pelo SHA-256. Todos os dados do certificado
+(assinatura ORB, grade de cores, bandas de pHash) vivem no banco, então
+a remoção é uma única operação atômica.
 
 Respostas: `204 No Content` (sem corpo) em caso de sucesso; `404 Not
 Found` quando não há certificado para o hash.
@@ -249,11 +244,6 @@ Todas obrigatórias salvo indicação em contrário. Ver `.env.example`.
 | `FROM_ADDRESS` | Endereço EVM destravado usado por `eth_sendTransaction` | `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` |
 | `CONTRACT_ADDRESS` | Endereço do contrato âncora | `0x5FbDB2315678afecb367f032d93F642f64180aa3` |
 | `SERVER_PORT` | Porta HTTP (opcional, default `8080`) | `8080` |
-| `S3_ENDPOINT` | Endpoint S3 (opcional; em branco usa AWS) | `http://localhost:9000` |
-| `S3_BUCKET` | Bucket para imagens normalizadas | `aletheia-images` |
-| `S3_ACCESS_KEY` | Access key S3 | `minioadmin` |
-| `S3_SECRET_KEY` | Secret key S3 | `minioadmin` |
-| `S3_REGION` | Região S3 (opcional, default `us-east-1`) | `us-east-1` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Endpoint OTLP/HTTP do Jaeger (opcional; em branco desliga o export) | `jaeger:4318` |
 | `OTEL_SERVICE_NAME` | Nome do serviço nos traces (opcional, default `aletheia-api`) | `aletheia-api` |
 | `OBS_RING_CAPACITY` | Traces recentes mantidos em memória para o painel (opcional, default `50`) | `50` |
@@ -265,8 +255,8 @@ cmd/api/              Entrypoint e wiring de dependências
 internal/domain/      Entidades e lógica de negócio pura
 internal/usecase/     Workflows de aplicação e ports (interfaces)
 internal/handler/     Handlers HTTP, middleware, DTOs, Swagger
-internal/repository/  Adapters PostgreSQL, EVM RPC, S3/MinIO
-internal/feature/     Extrator OpenCV (ORB + JPEG normalizado)
+internal/repository/  Adapters PostgreSQL e EVM RPC
+internal/feature/     Extrator OpenCV (ORB + grade de cores LAB)
 internal/observability/ Recorder do pipeline, coletor SSE e ponte OpenTelemetry
 internal/config/      Helpers de env
 migrations/           SQL de criação e evolução do schema
@@ -281,11 +271,11 @@ Unitários (sem dependências externas):
 go test ./...
 ```
 
-End-to-end (precisam de Postgres e MinIO no ar). Suba a infra primeiro
-e ative a build tag `e2e`:
+End-to-end (precisam de Postgres no ar). Suba a infra primeiro e ative
+a build tag `e2e`:
 
 ```bash
-docker compose up -d postgres minio minio-init
+docker compose up -d postgres
 go test -tags e2e ./tests/e2e/...
 ```
 

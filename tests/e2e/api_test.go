@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/waizbart/aletheia-api/internal/domain"
 )
 
 // --- Certify -----------------------------------------------------------------
@@ -40,7 +42,7 @@ func TestE2E_Certify_Image_HappyPath(t *testing.T) {
 		t.Error("ID empty")
 	}
 
-	phashLen, descLen, kpLen, blobKey := assertRowExists(t, env.db, wantHash)
+	phashLen, descLen, kpLen, gridLen := assertRowExists(t, env.db, wantHash)
 	if phashLen != 32 {
 		t.Errorf("phash bytes = %d, want 32", phashLen)
 	}
@@ -56,10 +58,9 @@ func TestE2E_Certify_Image_HappyPath(t *testing.T) {
 	if kpLen%48 != 0 {
 		t.Errorf("orb_keypoints length %d not a multiple of 48", kpLen)
 	}
-	if blobKey == "" {
-		t.Error("image_blob_key empty")
+	if gridLen != domain.ColorGridBytes {
+		t.Errorf("color_grid bytes = %d, want %d", gridLen, domain.ColorGridBytes)
 	}
-	assertBlobExists(t, env, blobKey)
 }
 
 func TestE2E_Certify_Duplicate_Returns409(t *testing.T) {
@@ -96,7 +97,7 @@ func TestE2E_Certify_NonImage_DegradedSave(t *testing.T) {
 		t.Fatalf("status = %d body=%s, want 201", status, respBody)
 	}
 
-	phashLen, descLen, kpLen, blobKey := assertRowExists(t, env.db, wantHash)
+	phashLen, descLen, kpLen, gridLen := assertRowExists(t, env.db, wantHash)
 	if phashLen != 0 {
 		t.Errorf("expected nil phash for non-image, got %d bytes", phashLen)
 	}
@@ -106,8 +107,8 @@ func TestE2E_Certify_NonImage_DegradedSave(t *testing.T) {
 	if kpLen != 0 {
 		t.Errorf("expected no keypoints, got %d bytes", kpLen)
 	}
-	if blobKey != "" {
-		t.Errorf("expected empty blob key for non-image, got %q", blobKey)
+	if gridLen != 0 {
+		t.Errorf("expected no color grid for non-image, got %d bytes", gridLen)
 	}
 }
 
@@ -123,12 +124,12 @@ func TestE2E_Certify_Image_TooSparse_DegradedSave(t *testing.T) {
 		t.Fatalf("status = %d, want 201", status)
 	}
 
-	phashLen, descLen, _, blobKey := assertRowExists(t, env.db, wantHash)
+	phashLen, descLen, _, gridLen := assertRowExists(t, env.db, wantHash)
 	if phashLen != 32 {
 		t.Errorf("expected pHash on the flat image, got len=%d", phashLen)
 	}
 	if descLen != 0 {
-		t.Logf("note: ORB found no descriptors on solid color (expected on textureless input); blob_key=%q", blobKey)
+		t.Logf("note: ORB found no descriptors on solid color (expected on textureless input); grid_len=%d", gridLen)
 	}
 }
 
@@ -224,29 +225,29 @@ func TestE2E_VerifyByFile_PerceptualMatrix(t *testing.T) {
 		mime string
 		want bool
 	}{
-		{"aletheia.jpg", "image/jpeg", true},                // exact bytes (SHA hits)
-		{"aletheia.png", "image/png", true},                 // PNG re-encoded
-		{"aletheia.gif", "image/gif", true},                 // GIF format
-		{"aletheia-q10.jpg", "image/jpeg", true},            // worst JPEG quality
+		{"aletheia.jpg", "image/jpeg", true},     // exact bytes (SHA hits)
+		{"aletheia.png", "image/png", true},      // PNG re-encoded
+		{"aletheia.gif", "image/gif", true},      // GIF format
+		{"aletheia-q10.jpg", "image/jpeg", true}, // worst JPEG quality
 		{"aletheia-q20.jpg", "image/jpeg", true},
 		{"aletheia-q30.jpg", "image/jpeg", true},
 		{"aletheia-q40.jpg", "image/jpeg", true},
 		{"aletheia-q50.jpg", "image/jpeg", true},
 		{"aletheia-q60.jpg", "image/jpeg", true},
 		{"aletheia-q70.jpg", "image/jpeg", true},
-		{"aletheia-q80.jpg", "image/jpeg", true},            // near-original quality
-		{"aletheia-rotated-90.jpg", "image/jpeg", true},     // rotation handled by pHash variants + ORB
+		{"aletheia-q80.jpg", "image/jpeg", true},        // near-original quality
+		{"aletheia-rotated-90.jpg", "image/jpeg", true}, // rotation handled by pHash variants + ORB
 		{"aletheia-rotated-180.jpg", "image/jpeg", true},
 		{"aletheia-rotated-270.jpg", "image/jpeg", true},
-		{"aletheia-cropped-10p.jpg", "image/jpeg", true},    // crop within ORB tolerance
-		{"aletheia-changed-1.jpg", "image/jpeg", false},     // overlay (max LAB > 38)
-		{"aletheia-changed-2.jpg", "image/jpeg", false},     // small dots, the fragile case
+		{"aletheia-cropped-10p.jpg", "image/jpeg", true}, // crop within ORB tolerance
+		{"aletheia-changed-1.jpg", "image/jpeg", false},  // overlay (max LAB > 38)
+		{"aletheia-changed-2.jpg", "image/jpeg", false},  // small dots, the fragile case
 		{"aletheia-changed-3.jpg", "image/jpeg", false},
 		{"aletheia-changed-4.jpg", "image/jpeg", false},
 		{"aletheia-changed-5.jpg", "image/jpeg", false},
 		{"aletheia-changed-6.jpg", "image/jpeg", false},
 		{"aletheia-changed-7.jpg", "image/jpeg", false},
-		{"aletheia-filter-1.jpg", "image/jpeg", false},      // global filter (mean LAB > 12)
+		{"aletheia-filter-1.jpg", "image/jpeg", false}, // global filter (mean LAB > 12)
 		{"aletheia-filter-2.jpg", "image/jpeg", false},
 		{"aletheia-filter-3.jpg", "image/jpeg", false},
 	}

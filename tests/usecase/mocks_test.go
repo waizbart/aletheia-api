@@ -53,48 +53,54 @@ func (m *mockBlockchain) IsHashRegistered(ctx context.Context, hash string) (boo
 	return m.isHashRegisteredFn(ctx, hash)
 }
 
-type mockExtractor struct {
-	computeFn func(ctx context.Context, content []byte) (*domain.FeatureSignature, []byte, error)
-	matchFn   func(ctx context.Context, refSig, candSig *domain.FeatureSignature, refImage, candImage []byte) (domain.MatchDecision, error)
+// validColorGrid returns a well-formed color grid for signatures used in
+// tests: correct byte length with an arbitrary fill.
+func validColorGrid() []byte {
+	grid := make([]byte, domain.ColorGridBytes)
+	for i := range grid {
+		grid[i] = byte(i % 251)
+	}
+	return grid
 }
 
-func (m *mockExtractor) Compute(ctx context.Context, content []byte) (*domain.FeatureSignature, []byte, error) {
+// signatureWithGrid builds a complete stored signature (descriptors,
+// keypoints, color grid, reference dims) as certify would persist it.
+func signatureWithGrid() *domain.FeatureSignature {
+	return &domain.FeatureSignature{
+		Descriptors: []byte{0x01},
+		Keypoints:   []byte{0x02},
+		ColorGrid:   validColorGrid(),
+		RefWidth:    1024,
+		RefHeight:   768,
+	}
+}
+
+type mockExtractor struct {
+	computeFn func(ctx context.Context, content []byte) (*domain.FeatureSignature, error)
+	matchFn   func(ctx context.Context, refSig, candSig *domain.FeatureSignature, candImage []byte) (domain.MatchDecision, error)
+}
+
+func (m *mockExtractor) Compute(ctx context.Context, content []byte) (*domain.FeatureSignature, error) {
 	if m.computeFn == nil {
-		return &domain.FeatureSignature{Descriptors: []byte{0x01}, Keypoints: []byte{0x02}}, []byte("jpeg"), nil
+		return signatureWithGrid(), nil
 	}
 	return m.computeFn(ctx, content)
 }
 
-func (m *mockExtractor) Match(ctx context.Context, refSig, candSig *domain.FeatureSignature, refImage, candImage []byte) (domain.MatchDecision, error) {
+func (m *mockExtractor) Match(ctx context.Context, refSig, candSig *domain.FeatureSignature, candImage []byte) (domain.MatchDecision, error) {
 	if m.matchFn == nil {
 		return domain.MatchDecision{}, nil
 	}
-	return m.matchFn(ctx, refSig, candSig, refImage, candImage)
+	return m.matchFn(ctx, refSig, candSig, candImage)
 }
 
-type mockBlobStore struct {
-	putFn    func(ctx context.Context, key string, data []byte) error
-	getFn    func(ctx context.Context, key string) ([]byte, error)
-	deleteFn func(ctx context.Context, key string) error
+type mockRenderer struct {
+	renderFn func(grid []byte, refWidth, refHeight int) ([]byte, error)
 }
 
-func (m *mockBlobStore) Put(ctx context.Context, key string, data []byte) error {
-	if m.putFn == nil {
-		return nil
+func (m *mockRenderer) RenderColorGridPNG(grid []byte, refWidth, refHeight int) ([]byte, error) {
+	if m.renderFn == nil {
+		return []byte("png"), nil
 	}
-	return m.putFn(ctx, key, data)
-}
-
-func (m *mockBlobStore) Get(ctx context.Context, key string) ([]byte, error) {
-	if m.getFn == nil {
-		return []byte("ref-jpeg"), nil
-	}
-	return m.getFn(ctx, key)
-}
-
-func (m *mockBlobStore) Delete(ctx context.Context, key string) error {
-	if m.deleteFn == nil {
-		return nil
-	}
-	return m.deleteFn(ctx, key)
+	return m.renderFn(grid, refWidth, refHeight)
 }

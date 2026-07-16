@@ -9,7 +9,6 @@ const STAGE_LABELS = {
   orb_extract: "Extração de features ORB",
   feature_commitment: "Compromisso de features (commitment)",
   chain_anchor: "Ancoragem em blockchain",
-  blob_put: "Armazenamento da imagem (S3)",
   db_save: "Persistência no banco (Postgres)",
   exact_lookup: "Busca exata por hash",
   lsh_prefilter: "Pré-filtro LSH (candidatos)",
@@ -26,8 +25,8 @@ const ATTR_LABELS = {
   has_phash: "pHash extraído?",
   keypoints: "Keypoints ORB",
   descriptors: "Descritores ORB",
-  jpeg_bytes: "JPEG normalizado (bytes)",
-  blob_key: "Chave no blob store",
+  color_grid_bytes: "Grade de cores (bytes)",
+  thumb_hash: "Hash do candidato",
   commitment: "Commitment (hex)",
   tx_hash: "Hash da transação",
   block_number: "Bloco",
@@ -121,7 +120,7 @@ function renderCandidates(stage) {
       const cmaxMax = attr(c, "max_cell_dist");
       const skipped = c.status === "skipped";
       const reason = attr(c, "reason");
-      const blobKey = attr(c, "blob_key");
+      const thumbHash = attr(c, "thumb_hash");
       const num = (v, d = 1) => (v == null ? "—" : Number(v).toFixed(d));
       const over = (v, lim) => (v != null && lim != null && v > lim ? " class=\"over\"" : "");
       const pill = skipped
@@ -129,8 +128,8 @@ function renderCandidates(stage) {
         : matched
         ? `<span class="verdict-pill yes">match</span>`
         : `<span class="verdict-pill no">não match</span>`;
-      const thumb = blobKey
-        ? `<img class="cand-thumb" loading="lazy" alt="candidato #${i + 1}" src="/observability/blob/${encodeURIComponent(blobKey)}" onerror="this.style.display='none'">`
+      const thumb = thumbHash
+        ? `<img class="cand-thumb" loading="lazy" alt="candidato #${i + 1}" src="/observability/thumb/${encodeURIComponent(thumbHash)}" onerror="this.style.display='none'">`
         : "";
       return `<tr class="${matched ? "matched" : ""}">
         <td><div class="cand-cell">${thumb}<span>#${i + 1} ${pill}</span></div></td>

@@ -74,3 +74,29 @@ func TestFeatureCommitmentHex_MatchesBytes(t *testing.T) {
 		t.Fatalf("hex length = %d, want 64", len(got))
 	}
 }
+
+// The on-chain commitment binds pHash + ORB descriptors + keypoints. The color
+// grid is deliberately NOT part of it — it plays the same role as the old
+// (uncommitted) S3 reference JPEG — so signatures with and without a grid MUST
+// produce identical commitments, or every certificate anchored before the
+// grid migration would fail commitment verification.
+func TestFeatureCommitment_IndependentOfColorGrid(t *testing.T) {
+	var phash [32]byte
+	phash[3] = 0xab
+
+	bare := &domain.FeatureSignature{
+		Descriptors: []byte{1, 2, 3, 4},
+		Keypoints:   []byte{5, 6, 7, 8},
+	}
+	withGrid := &domain.FeatureSignature{
+		Descriptors: bare.Descriptors,
+		Keypoints:   bare.Keypoints,
+		ColorGrid:   make([]byte, domain.ColorGridBytes),
+		RefWidth:    1024,
+		RefHeight:   768,
+	}
+
+	if domain.FeatureCommitment(&phash, bare) != domain.FeatureCommitment(&phash, withGrid) {
+		t.Fatal("commitment changed when a color grid was attached — legacy on-chain commitments would break")
+	}
+}

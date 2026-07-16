@@ -12,7 +12,6 @@ sequenceDiagram
     participant UC as CertifyUseCase
     participant CV as OpenCV Extractor
     participant DB as PostgreSQL
-    participant S3 as S3 / MinIO
     participant SC as EVM JSON-RPC
 
     U->>API: POST /certificates<br/>multipart file + X-Registrant
@@ -32,10 +31,8 @@ sequenceDiagram
 
     opt é imagem
         UC->>CV: Compute(content)
-        CV->>CV: decode, resize, ORB,<br/>encode JPEG normalizado
-        CV-->>UC: FeatureSignature, jpegBytes
-        UC->>S3: Put(contentHash + ".jpg", jpegBytes)
-        S3-->>UC: OK
+        CV->>CV: decode, resize, ORB,<br/>grade de cores LAB (128×128)
+        CV-->>UC: FeatureSignature<br/>(descritores + keypoints + grade)
     end
 
     UC->>UC: commitment = FeatureCommitment(phash, signature)
@@ -67,7 +64,6 @@ sequenceDiagram
     participant UC as VerifyUseCase
     participant CV as OpenCV Extractor
     participant DB as PostgreSQL
-    participant S3 as S3 / MinIO
 
     U->>API: POST /certificates/verify<br/>multipart file
     API->>UC: Execute(VerifyInput{Content})
@@ -89,10 +85,9 @@ sequenceDiagram
     Note over DB: LSH prefilter via UNNEST(band_idx, band_value)<br/>JOIN phash_bands + Hamming-256 ≤ maxDist
     DB-->>UC: candidatos ordenados por distância
 
-    loop cada candidato com Signature + ImageBlobKey
-        UC->>S3: Get(ImageBlobKey)
-        S3-->>UC: refImage
-        UC->>CV: Match(refSig, candSig, refImage, candImage)
+    loop cada candidato com Signature + ColorGrid
+        UC->>CV: Match(refSig, candSig, candImage)
+        Note over CV: geometria ORB+RANSAC dos descritores<br/>resíduo de cor vs grade LAB armazenada
         CV-->>UC: MatchDecision
         alt Matched
             UC-->>API: Certified=true

@@ -20,11 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	_ "github.com/lib/pq"
 
 	"github.com/waizbart/aletheia-api/internal/feature"
@@ -37,11 +32,9 @@ import (
 var testdataDir = testdata.Curated("aletheia")
 
 type e2eEnv struct {
-	server   *httptest.Server
-	db       *sql.DB
-	s3       *s3.Client
-	bucket   string
-	cleanup  func()
+	server  *httptest.Server
+	db      *sql.DB
+	cleanup func()
 }
 
 type fakeChain struct {
@@ -60,15 +53,10 @@ func (f *fakeChain) IsHashRegistered(_ context.Context, _ string) (bool, error) 
 func setupE2E(t *testing.T) *e2eEnv {
 	t.Helper()
 	if os.Getenv("E2E") != "1" {
-		t.Skip("set E2E=1 to run end-to-end tests (requires postgres + minio reachable; see docker-compose.yml)")
+		t.Skip("set E2E=1 to run end-to-end tests (requires postgres reachable; see docker-compose.yml)")
 	}
 
 	dsn := envOr("DATABASE_URL", "postgres://aletheia:aletheia@localhost:5432/aletheia?sslmode=disable")
-	endpoint := envOr("S3_ENDPOINT", "http://localhost:9000")
-	bucket := envOr("S3_BUCKET", "aletheia-images")
-	region := envOr("S3_REGION", "us-east-1")
-	accessKey := envOr("S3_ACCESS_KEY", "minioadmin")
-	secretKey := envOr("S3_SECRET_KEY", "minioadmin")
 
 	ctx := context.Background()
 
@@ -80,42 +68,15 @@ func setupE2E(t *testing.T) *e2eEnv {
 		t.Fatalf("ping db: %v (is docker-compose up?)", err)
 	}
 
-	cfg, err := awsconfig.LoadDefaultConfig(ctx,
-		awsconfig.WithRegion(region),
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
-	)
-	if err != nil {
-		t.Fatalf("aws config: %v", err)
-	}
-	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
-	})
-	if _, err := s3Client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)}); err != nil {
-		if _, cerr := s3Client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)}); cerr != nil {
-			t.Fatalf("ensure bucket: head=%v create=%v", err, cerr)
-		}
-	}
-
-	t.Setenv("S3_ENDPOINT", endpoint)
-	t.Setenv("S3_BUCKET", bucket)
-	t.Setenv("S3_REGION", region)
-	t.Setenv("S3_ACCESS_KEY", accessKey)
-	t.Setenv("S3_SECRET_KEY", secretKey)
-	blobStore, err := repository.NewS3BlobStoreFromEnv(ctx)
-	if err != nil {
-		t.Fatalf("blob store: %v", err)
-	}
-
-	resetState(t, ctx, db, s3Client, bucket)
+	resetState(t, ctx, db)
 
 	extractor := feature.NewOpenCVExtractor()
 	certRepo := repository.NewPostgresCertificateRepo(db)
 	chain := &fakeChain{}
 
-	certifyUC := usecase.NewCertifyUseCase(certRepo, chain, extractor, blobStore)
-	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor, blobStore)
-	deleteUC := usecase.NewDeleteUseCase(certRepo, blobStore)
+	certifyUC := usecase.NewCertifyUseCase(certRepo, chain, extractor)
+	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor)
+	deleteUC := usecase.NewDeleteUseCase(certRepo)
 	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC)
 
 	mux := http.NewServeMux()
@@ -131,8 +92,6 @@ func setupE2E(t *testing.T) *e2eEnv {
 	return &e2eEnv{
 		server:  server,
 		db:      db,
-		s3:      s3Client,
-		bucket:  bucket,
 		cleanup: cleanup,
 	}
 }
@@ -144,39 +103,10 @@ func envOr(key, def string) string {
 	return def
 }
 
-func resetState(t *testing.T, ctx context.Context, db *sql.DB, s3Client *s3.Client, bucket string) {
+func resetState(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	if _, err := db.ExecContext(ctx, "TRUNCATE certificates CASCADE"); err != nil {
 		t.Fatalf("truncate certificates: %v", err)
-	}
-
-	var token *string
-	for {
-		out, err := s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:            aws.String(bucket),
-			ContinuationToken: token,
-		})
-		if err != nil {
-			t.Fatalf("list bucket: %v", err)
-		}
-		if len(out.Contents) == 0 {
-			break
-		}
-		ids := make([]types.ObjectIdentifier, 0, len(out.Contents))
-		for _, o := range out.Contents {
-			ids = append(ids, types.ObjectIdentifier{Key: o.Key})
-		}
-		_, err = s3Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-			Bucket: aws.String(bucket),
-			Delete: &types.Delete{Objects: ids},
-		})
-		if err != nil {
-			t.Fatalf("delete bucket objects: %v", err)
-		}
-		if out.IsTruncated == nil || !*out.IsTruncated {
-			break
-		}
-		token = out.NextContinuationToken
 	}
 }
 
@@ -329,33 +259,19 @@ func decodeVerify(t *testing.T, body []byte) verifyResp {
 	return v
 }
 
-func assertRowExists(t *testing.T, db *sql.DB, contentHash string) (phashLen, descLen, kpLen int, blobKey string) {
+func assertRowExists(t *testing.T, db *sql.DB, contentHash string) (phashLen, descLen, kpLen, gridLen int) {
 	t.Helper()
 	row := db.QueryRow(`
 		SELECT
 			COALESCE(octet_length(phash), 0),
 			COALESCE(octet_length(orb_descriptors), 0),
 			COALESCE(octet_length(orb_keypoints), 0),
-			COALESCE(image_blob_key, '')
+			COALESCE(octet_length(color_grid), 0)
 		FROM certificates WHERE content_hash = $1`, contentHash)
-	if err := row.Scan(&phashLen, &descLen, &kpLen, &blobKey); err != nil {
+	if err := row.Scan(&phashLen, &descLen, &kpLen, &gridLen); err != nil {
 		t.Fatalf("query certificate row: %v", err)
 	}
 	return
-}
-
-func assertBlobExists(t *testing.T, env *e2eEnv, key string) {
-	t.Helper()
-	if key == "" {
-		t.Fatal("empty blob key")
-	}
-	_, err := env.s3.HeadObject(context.Background(), &s3.HeadObjectInput{
-		Bucket: aws.String(env.bucket),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		t.Fatalf("blob %s missing: %v", key, err)
-	}
 }
 
 func countCertificates(t *testing.T, db *sql.DB) int {

@@ -43,12 +43,6 @@ func main() {
 	}
 	log.Println("connected to PostgreSQL")
 
-	blobStore, err := repository.NewS3BlobStoreFromEnv(ctx)
-	if err != nil {
-		log.Fatalf("initializing blob store: %v", err)
-	}
-	log.Println("connected to S3-compatible blob store")
-
 	extractor := feature.NewOpenCVExtractor()
 	defer extractor.Close()
 
@@ -81,9 +75,10 @@ func main() {
 	collector := observability.NewCollector(ringCap)
 	obsFactory := observability.NewFactory(collector, tracer)
 
-	certifyUC := usecase.NewCertifyUseCase(certRepo, chainSvc, extractor, blobStore)
-	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor, blobStore)
-	deleteUC := usecase.NewDeleteUseCase(certRepo, blobStore)
+	certifyUC := usecase.NewCertifyUseCase(certRepo, chainSvc, extractor)
+	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor)
+	deleteUC := usecase.NewDeleteUseCase(certRepo)
+	thumbnailUC := usecase.NewThumbnailUseCase(certRepo, extractor)
 
 	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC)
 
@@ -91,7 +86,7 @@ func main() {
 	certHandler.RegisterRoutes(mux)
 	handler.RegisterDocsRoutes(mux)
 	handler.RegisterHealthRoutes(mux)
-	handler.RegisterObservabilityRoutes(mux, collector, blobStore)
+	handler.RegisterObservabilityRoutes(mux, collector, thumbnailUC)
 
 	corsOrigins := strings.Split(config.EnvOrDefault("CORS_ALLOWED_ORIGINS", "*"), ",")
 	wrapped := handler.LoggingMiddleware(handler.CORS(corsOrigins)(handler.ObservabilityMiddleware(obsFactory)(mux)))

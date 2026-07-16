@@ -53,9 +53,8 @@ func runManifestEval(t *testing.T, manifestPath string) {
 
 	// Load all unique bases referenced in the manifest.
 	type baseEntry struct {
-		bytes    []byte
-		sig      *domain.FeatureSignature
-		refImage []byte
+		bytes []byte
+		sig   *domain.FeatureSignature
 	}
 	bases := make(map[string]baseEntry)
 	for _, s := range m.Samples {
@@ -66,11 +65,11 @@ func runManifestEval(t *testing.T, manifestPath string) {
 		if err != nil {
 			t.Fatalf("base %s: read %q: %v", s.BaseImageID, s.SourcePath, err)
 		}
-		sig, refImage, err := ext.Compute(ctx, b)
+		sig, err := ext.Compute(ctx, b)
 		if err != nil {
 			t.Fatalf("base %s: compute: %v", s.BaseImageID, err)
 		}
-		bases[s.BaseImageID] = baseEntry{bytes: b, sig: sig, refImage: refImage}
+		bases[s.BaseImageID] = baseEntry{bytes: b, sig: sig}
 	}
 	t.Logf("loaded %d unique bases", len(bases))
 
@@ -92,13 +91,13 @@ func runManifestEval(t *testing.T, manifestPath string) {
 			t.Errorf("sample %s: read variant: %v", s.ID, err)
 			continue
 		}
-		candSig, _, cerr := ext.Compute(ctx, varB)
+		candSig, cerr := ext.Compute(ctx, varB)
 		if cerr != nil {
 			evalErrors++
 			t.Errorf("sample %s: compute variant: %v", s.ID, cerr)
 			continue
 		}
-		dec, merr := ext.Match(ctx, base.sig, candSig, base.refImage, varB)
+		dec, merr := ext.Match(ctx, base.sig, candSig, varB)
 		if merr != nil {
 			evalErrors++
 			t.Errorf("sample %s: match: %v", s.ID, merr)
@@ -220,10 +219,9 @@ func runSmokeEval(t *testing.T) {
 	}
 
 	type baseEntry struct {
-		name     string
-		bytes    []byte
-		sig      *domain.FeatureSignature
-		refImage []byte
+		name  string
+		bytes []byte
+		sig   *domain.FeatureSignature
 	}
 	bases := make([]baseEntry, 0, len(files))
 	for _, fp := range files {
@@ -231,16 +229,15 @@ func runSmokeEval(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", fp, err)
 		}
-		sig, refImage, err := ext.Compute(ctx, b)
+		sig, err := ext.Compute(ctx, b)
 		if err != nil {
 			t.Logf("skip %s: extractor rejected base (%v)", filepath.Base(fp), err)
 			continue
 		}
 		bases = append(bases, baseEntry{
-			name:     filepath.Base(fp),
-			bytes:    b,
-			sig:      sig,
-			refImage: refImage,
+			name:  filepath.Base(fp),
+			bytes: b,
+			sig:   sig,
 		})
 	}
 	if len(bases) < 20 {
@@ -287,7 +284,7 @@ func runSmokeEval(t *testing.T) {
 				}
 				continue
 			} else {
-				candSig, _, cerr := ext.Compute(ctx, candBytes)
+				candSig, cerr := ext.Compute(ctx, candBytes)
 				if cerr != nil {
 					detail = fmt.Sprintf("extract err: %v", cerr)
 					c.fail++
@@ -298,7 +295,7 @@ func runSmokeEval(t *testing.T) {
 					}
 					continue
 				} else {
-					dec, merr := ext.Match(ctx, base.sig, candSig, base.refImage, candBytes)
+					dec, merr := ext.Match(ctx, base.sig, candSig, candBytes)
 					if merr != nil {
 						detail = fmt.Sprintf("match err: %v", merr)
 						c.fail++

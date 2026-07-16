@@ -64,7 +64,7 @@ paths:
       tags: [Health]
       summary: Verifica saúde do serviço
       description: Retorna `200 OK` quando o processo está no ar. Não
-        depende de Postgres, S3 ou RPC; serve apenas para liveness.
+        depende de Postgres ou RPC; serve apenas para liveness.
       operationId: healthCheck
       responses:
         "200":
@@ -86,9 +86,10 @@ paths:
         `(contentHash, featureCommitment)` em uma transação EVM e
         persiste o certificado.
 
-        Extrai um perceptual hash de 256 bits e descritores ORB via
-        OpenCV; o JPEG normalizado vai para o blob store (S3/MinIO)
-        para uso futuro em re-checagem visual.
+        Extrai um perceptual hash de 256 bits, descritores ORB e uma
+        grade de cores LAB (128×128 médias por célula) via OpenCV; a
+        grade fica no certificado para a re-checagem visual — nenhuma
+        imagem é armazenada.
       operationId: certifyContent
       parameters:
         - $ref: "#/components/parameters/RegistrantHeader"
@@ -145,7 +146,7 @@ paths:
                 anchor:
                   value: { error: "certify: registering on chain: rpc error: nonce too low" }
                 storage:
-                  value: { error: "certify: storing image blob: s3 put: timeout" }
+                  value: { error: "certify: saving certificate: postgres save: timeout" }
 
   /certificates/verify:
     get:
@@ -199,8 +200,8 @@ paths:
         2. Extrai pHash em várias rotações/flips, faz prefilter LSH
            em `phash_bands`, calcula Hamming-256 contra os candidatos
            sobreviventes (`maxDistance` configurado em domínio) e,
-           nos melhores `top-K`, roda re-check com ORB contra a
-           imagem original armazenada no blob store.
+           nos melhores `top-K`, roda re-check com ORB + resíduo de
+           cor contra a grade de cores armazenada no certificado.
 
         O custo do segundo caminho cresce com o tamanho da base e da
         imagem enviada, então prefira o `GET ?hash=` quando o
@@ -263,11 +264,9 @@ paths:
       tags: [Certificates]
       summary: Remove um certificado
       description: |
-        Apaga o certificado identificado pelo `SHA-256` e a imagem
-        normalizada associada no blob store (S3/MinIO). A imagem é
-        removida antes do registro no banco; como o `DeleteObject` é
-        idempotente, uma nova tentativa converge em caso de falha
-        parcial.
+        Apaga o certificado identificado pelo `SHA-256`. Todos os
+        dados (assinatura ORB, grade de cores, bandas de pHash) vivem
+        no banco, então a remoção é uma única operação atômica.
 
         Responde `204 No Content` em caso de sucesso (sem corpo) e
         `404 Not Found` quando não há certificado para o hash.
@@ -287,14 +286,14 @@ paths:
                 nao_encontrado:
                   value: { error: "delete: certificate not found" }
         "500":
-          description: Erro interno (remoção do blob ou do banco).
+          description: Erro interno (falha na remoção no banco).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
               examples:
                 interno:
-                  value: { error: "delete: removing image blob: s3 delete: timeout" }
+                  value: { error: "delete: postgres delete: timeout" }
 
 components:
   parameters:

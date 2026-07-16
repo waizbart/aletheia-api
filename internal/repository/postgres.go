@@ -23,27 +23,31 @@ func NewPostgresCertificateRepo(db *sql.DB) *PostgresCertificateRepo {
 func (r *PostgresCertificateRepo) Save(ctx context.Context, cert *domain.Certificate) error {
 	const insertCert = `
 		INSERT INTO certificates (
-			content_hash, phash, orb_descriptors, orb_keypoints, image_blob_key,
-			feature_commitment, registrant, tx_hash, block_number, created_at
+			content_hash, phash, orb_descriptors, orb_keypoints, color_grid,
+			ref_width, ref_height, feature_commitment, registrant, tx_hash,
+			block_number, created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id`
 
-	var phash, orbDesc, orbKp, commitment []byte
+	var phash, orbDesc, orbKp, colorGrid, commitment []byte
+	var refW, refH sql.NullInt32
 	if cert.PHash != nil {
 		phash = cert.PHash[:]
 	}
 	if cert.Signature != nil {
 		orbDesc = cert.Signature.Descriptors
 		orbKp = cert.Signature.Keypoints
+		colorGrid = cert.Signature.ColorGrid
+		if cert.Signature.RefWidth > 0 {
+			refW = sql.NullInt32{Int32: int32(cert.Signature.RefWidth), Valid: true}
+		}
+		if cert.Signature.RefHeight > 0 {
+			refH = sql.NullInt32{Int32: int32(cert.Signature.RefHeight), Valid: true}
+		}
 	}
 	if cert.FeatureCommitment != nil {
 		commitment = cert.FeatureCommitment[:]
-	}
-
-	var blobKey sql.NullString
-	if cert.ImageBlobKey != "" {
-		blobKey = sql.NullString{String: cert.ImageBlobKey, Valid: true}
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -57,7 +61,9 @@ func (r *PostgresCertificateRepo) Save(ctx context.Context, cert *domain.Certifi
 		phash,
 		orbDesc,
 		orbKp,
-		blobKey,
+		colorGrid,
+		refW,
+		refH,
 		commitment,
 		cert.Registrant,
 		cert.TxHash,
@@ -96,22 +102,25 @@ func insertPHashBands(ctx context.Context, tx *sql.Tx, certID string, phash [32]
 }
 
 const certificateColumns = `
-	id, content_hash, phash, orb_descriptors, orb_keypoints, image_blob_key,
-	feature_commitment, registrant, tx_hash, block_number, created_at`
+	id, content_hash, phash, orb_descriptors, orb_keypoints, color_grid,
+	ref_width, ref_height, feature_commitment, registrant, tx_hash,
+	block_number, created_at`
 
 func scanCertificate(scanner interface {
 	Scan(dest ...any) error
 }) (*domain.Certificate, error) {
 	cert := &domain.Certificate{}
-	var phash, orbDesc, orbKp, commitment []byte
-	var blobKey sql.NullString
+	var phash, orbDesc, orbKp, colorGrid, commitment []byte
+	var refW, refH sql.NullInt32
 	if err := scanner.Scan(
 		&cert.ID,
 		&cert.ContentHash,
 		&phash,
 		&orbDesc,
 		&orbKp,
-		&blobKey,
+		&colorGrid,
+		&refW,
+		&refH,
 		&commitment,
 		&cert.Registrant,
 		&cert.TxHash,
@@ -125,19 +134,19 @@ func scanCertificate(scanner interface {
 		copy(arr[:], phash)
 		cert.PHash = &arr
 	}
-	if len(orbDesc) > 0 || len(orbKp) > 0 {
+	if len(orbDesc) > 0 || len(orbKp) > 0 || len(colorGrid) > 0 {
 		cert.Signature = &domain.FeatureSignature{
 			Descriptors: orbDesc,
 			Keypoints:   orbKp,
+			ColorGrid:   colorGrid,
+			RefWidth:    int(refW.Int32),
+			RefHeight:   int(refH.Int32),
 		}
 	}
 	if len(commitment) == 32 {
 		var arr [32]byte
 		copy(arr[:], commitment)
 		cert.FeatureCommitment = &arr
-	}
-	if blobKey.Valid {
-		cert.ImageBlobKey = blobKey.String
 	}
 	return cert, nil
 }
