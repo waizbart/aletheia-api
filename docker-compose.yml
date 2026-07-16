@@ -26,25 +26,6 @@ services:
     ports:
       - "127.0.0.1:8545:8545"
 
-  minio:
-    image: minio/minio:latest
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    # S3 API (9000) stays on localhost; only the web console (9001) is public.
-    ports:
-      - "127.0.0.1:9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - miniodata:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   jaeger:
     image: jaegertracing/all-in-one:1.60
     restart: unless-stopped
@@ -53,19 +34,6 @@ services:
     ports:
       - "16686:16686"            # Jaeger UI
       - "127.0.0.1:4318:4318"    # OTLP HTTP receiver
-
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_started
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done
-        mc mb --ignore-existing local/aletheia-images
-        exit 0
 
   api:
     build: .
@@ -78,11 +46,6 @@ services:
       FROM_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
       CONTRACT_ADDRESS: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
       SERVER_PORT: "8080"
-      S3_ENDPOINT: http://minio:9000
-      S3_BUCKET: aletheia-images
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
-      S3_REGION: us-east-1
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4318
       OTEL_SERVICE_NAME: aletheia-api
     depends_on:
@@ -90,11 +53,8 @@ services:
         condition: service_healthy
       anvil:
         condition: service_started
-      minio:
-        condition: service_started
       jaeger:
         condition: service_started
 
 volumes:
   pgdata:
-  miniodata:
