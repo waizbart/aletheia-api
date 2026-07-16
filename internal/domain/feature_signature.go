@@ -29,12 +29,12 @@ const (
 	// a 36%-area crop — despite opposite taxonomy labels). 0.42 keeps mild border
 	// crops and rejects any crop discarding >~60% of the frame. Full-frame edits
 	// (jpeg/noise/scale/rotation) sit near 1.0 and are unaffected.
-	MinAreaCoverage    = 0.42
+	MinAreaCoverage     = 0.42
 	MinCellMaskCoverage = 0.9
-	GridSize           = 128
-	OrbFeatures        = 2000
-	LoweRatio          = 0.75
-	ResizeMax          = 1024
+	GridSize            = 128
+	OrbFeatures         = 2000
+	LoweRatio           = 0.75
+	ResizeMax           = 1024
 )
 
 const (
@@ -43,11 +43,36 @@ const (
 	// KeypointEncodedSize is the byte length of a single serialized keypoint
 	// (X, Y, Size, Angle, Response as float64 + Octave, ClassID as int32).
 	KeypointEncodedSize = 48
+	// ColorGridChannels is the number of stored channels per grid cell (L, a, b).
+	ColorGridChannels = 3
+	// ColorGridBytes is the exact byte length of an encoded color grid:
+	// GridSize² cells × 3 channels, one byte per channel (the LAB cell mean
+	// rounded to the nearest integer; OpenCV 8-bit LAB channels span 0–255).
+	// Rounding drifts each channel by ≤0.5, bounding the per-cell LAB distance
+	// error at ~0.87 — three orders of magnitude under MaxColorMean/MaxCellDist,
+	// and measured to flip zero decisions across the transform taxonomy.
+	ColorGridBytes = GridSize * GridSize * ColorGridChannels
 )
 
 type FeatureSignature struct {
 	Descriptors []byte
 	Keypoints   []byte
+	// ColorGrid holds the per-cell mean LAB color of the normalized reference
+	// image, row-major over the GridSize×GridSize grid, 3 bytes per cell.
+	// It replaces the reference image previously fetched from blob storage:
+	// the color-residual gate only ever reads these cell means, never pixels.
+	ColorGrid []byte
+	// RefWidth and RefHeight are the reference dimensions in the resized space
+	// (long side capped at ResizeMax) the keypoints and grid cells live in. The
+	// matcher needs them to warp the candidate into the reference frame.
+	RefWidth  int
+	RefHeight int
+}
+
+// HasColorGrid reports whether the signature carries a well-formed color grid
+// with usable reference dimensions.
+func (s *FeatureSignature) HasColorGrid() bool {
+	return s != nil && len(s.ColorGrid) == ColorGridBytes && s.RefWidth > 0 && s.RefHeight > 0
 }
 
 // KeypointCount returns the number of ORB keypoints encoded in the signature.

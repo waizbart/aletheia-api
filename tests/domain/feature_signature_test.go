@@ -59,3 +59,36 @@ func TestFeatureSignatureCounts(t *testing.T) {
 		t.Fatalf("DescriptorCount = %d, want 3", got)
 	}
 }
+
+func TestFeatureSignatureHasColorGrid(t *testing.T) {
+	valid := make([]byte, domain.ColorGridBytes)
+
+	tests := []struct {
+		name string
+		sig  *domain.FeatureSignature
+		want bool
+	}{
+		{"nil signature", nil, false},
+		{"no grid", &domain.FeatureSignature{Descriptors: []byte{1}}, false},
+		{"grid too short", &domain.FeatureSignature{ColorGrid: []byte{1, 2, 3}, RefWidth: 10, RefHeight: 10}, false},
+		{"grid too long", &domain.FeatureSignature{ColorGrid: make([]byte, domain.ColorGridBytes+1), RefWidth: 10, RefHeight: 10}, false},
+		{"missing width", &domain.FeatureSignature{ColorGrid: valid, RefHeight: 10}, false},
+		{"missing height", &domain.FeatureSignature{ColorGrid: valid, RefWidth: 10}, false},
+		{"valid", &domain.FeatureSignature{ColorGrid: valid, RefWidth: 1024, RefHeight: 768}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.sig.HasColorGrid(); got != tt.want {
+				t.Errorf("HasColorGrid() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestColorGridBytesLayout(t *testing.T) {
+	want := domain.GridSize * domain.GridSize * domain.ColorGridChannels
+	if domain.ColorGridBytes != want {
+		t.Fatalf("ColorGridBytes = %d, want GridSize²×channels = %d", domain.ColorGridBytes, want)
+	}
+}
