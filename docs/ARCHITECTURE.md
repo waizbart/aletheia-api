@@ -2,7 +2,7 @@
 
 Visão estática dos componentes da Aletheia API e suas integrações. O
 recorte segue Clean Architecture: as dependências apontam para dentro
-(handler → usecase → domain), e a infraestrutura (Postgres, S3, RPC
+(handler → usecase → domain), e a infraestrutura (Postgres, RPC
 EVM, OpenCV) fica atrás de portas declaradas em
 `internal/usecase/ports.go`.
 
@@ -21,7 +21,6 @@ flowchart LR
 
     subgraph Infra["Infraestrutura"]
         DB[("PostgreSQL 16<br/>certificates<br/>phash_bands")]
-        S3[("S3 / MinIO<br/>bucket aletheia-images")]
         CHAIN["EVM JSON-RPC<br/>(Anvil local, Polygon em prod)"]
         SC["Smart Contract<br/>âncora de hash"]
     end
@@ -30,7 +29,6 @@ flowchart LR
     OP -- "Swagger /docs<br/>/health" --> API
 
     API -- "SQL via lib/pq<br/>pool de conexões" --> DB
-    API -- "PutObject /<br/>GetObject (AWS SDK v2)" --> S3
     API -- "eth_sendTransaction<br/>(calldata = hash‖commit)" --> CHAIN
     CHAIN -- "inclui tx no bloco" --> SC
 ```
@@ -54,7 +52,7 @@ flowchart TB
     subgraph usecase["internal/usecase (Application)"]
         UC_C["CertifyUseCase"]
         UC_V["VerifyUseCase"]
-        PORTS["Ports<br/>CertificateRepository<br/>BlockchainService<br/>FeatureExtractor<br/>ImageBlobStore"]
+        PORTS["Ports<br/>CertificateRepository<br/>BlockchainService<br/>FeatureExtractor<br/>ColorGridRenderer"]
     end
 
     subgraph domain["internal/domain (Entity)"]
@@ -64,7 +62,6 @@ flowchart TB
     subgraph repo["internal/repository (Infra)"]
         PG["PostgresCertificateRepo"]
         EVM["RPCBlockchainService"]
-        BLOB["S3BlobStore"]
         FACT["BlockchainServiceFromEnv"]
     end
 
@@ -78,7 +75,7 @@ flowchart TB
 
     MAIN --> H_CERT & H_DOCS & H_HEAL & MID
     MAIN --> UC_C & UC_V
-    MAIN --> PG & EVM & BLOB & ORB & FACT
+    MAIN --> PG & EVM & ORB & FACT
     MAIN --> CFG
 
     H_CERT --> UC_C
@@ -92,7 +89,6 @@ flowchart TB
 
     PG -. implementa .-> PORTS
     EVM -. implementa .-> PORTS
-    BLOB -. implementa .-> PORTS
     ORB -. implementa .-> PORTS
 ```
 
@@ -113,7 +109,9 @@ erDiagram
         bytea phash "32 bytes, nullable (gravado em todo certificado novo)"
         bytea orb_descriptors "ORB binário, nullable"
         bytea orb_keypoints "keypoints serializados"
-        text image_blob_key "chave no S3, nullable"
+        bytea color_grid "128x128x3 médias LAB, nullable"
+        smallint ref_width "largura no espaço redimensionado"
+        smallint ref_height "altura no espaço redimensionado"
         bytea feature_commitment "32 bytes, bundle off-chain"
         text registrant "X-Registrant"
         text tx_hash "tx EVM"
@@ -164,15 +162,10 @@ flowchart LR
         API_C["api:8080"]
         PG_C["postgres:5432"]
         ANVIL_C["anvil:8545"]
-        MINIO_C["minio:9000<br/>console:9001"]
-        INIT["minio-init<br/>(cria bucket)"]
     end
 
     API_C -- DATABASE_URL --> PG_C
     API_C -- RPC_URL --> ANVIL_C
-    API_C -- S3_ENDPOINT --> MINIO_C
-    INIT --> MINIO_C
 
     PG_C -. volume .- VOL1[("pgdata")]
-    MINIO_C -. volume .- VOL2[("miniodata")]
 ```
