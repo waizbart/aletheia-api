@@ -14,7 +14,6 @@ type Certificate struct {
 	PHash             *[32]byte
 	Signature         *FeatureSignature
 	FeatureCommitment *[32]byte
-	ImageBlobKey      string
 	Registrant        string
 	TxHash            string
 	BlockNumber       uint64

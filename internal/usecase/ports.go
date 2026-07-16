@@ -25,12 +25,19 @@ type BlockchainService interface {
 }
 
 type FeatureExtractor interface {
-	Compute(ctx context.Context, content []byte) (*domain.FeatureSignature, []byte, error)
-	Match(ctx context.Context, refSig, candSig *domain.FeatureSignature, refImage, candImage []byte) (domain.MatchDecision, error)
+	// Compute extracts the full stored signature from an image: ORB keypoints
+	// and descriptors plus the color grid (per-cell LAB means) and reference
+	// dimensions the matcher's color-residual gate reads at verify time.
+	Compute(ctx context.Context, content []byte) (*domain.FeatureSignature, error)
+	// Match compares a stored reference signature against a candidate. Only the
+	// candidate image bytes are needed — the reference side runs entirely from
+	// the signature, so no reference image is stored or fetched anywhere.
+	Match(ctx context.Context, refSig, candSig *domain.FeatureSignature, candImage []byte) (domain.MatchDecision, error)
 }
 
-type ImageBlobStore interface {
-	Put(ctx context.Context, key string, data []byte) error
-	Get(ctx context.Context, key string) ([]byte, error)
-	Delete(ctx context.Context, key string) error
+// ColorGridRenderer renders a stored color grid back to a small PNG so the
+// observability dashboard can show candidate thumbnails without any stored
+// reference image.
+type ColorGridRenderer interface {
+	RenderColorGridPNG(grid []byte, refWidth, refHeight int) ([]byte, error)
 }

@@ -81,7 +81,7 @@ func TestOpenCVExtractor_TinyImageGuard(t *testing.T) {
 	// 1x1 is the original crash repro; 62 is just under the threshold.
 	for _, size := range []int{1, 16, 62} {
 		t.Run(fmt.Sprintf("%dpx_rejected", size), func(t *testing.T) {
-			_, _, err := ext.Compute(ctx, noisePNG(t, size, size))
+			_, err := ext.Compute(ctx, noisePNG(t, size, size))
 			if err == nil {
 				t.Fatalf("expected error for %dx%d image, got nil", size, size)
 			}
@@ -95,7 +95,7 @@ func TestOpenCVExtractor_TinyImageGuard(t *testing.T) {
 	// signature or a clean "no features detected" error.
 	for _, size := range []int{63, 80} {
 		t.Run(fmt.Sprintf("%dpx_no_crash", size), func(t *testing.T) {
-			_, _, err := ext.Compute(ctx, noisePNG(t, size, size))
+			_, err := ext.Compute(ctx, noisePNG(t, size, size))
 			if err != nil && !strings.Contains(err.Error(), "no features detected") {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -112,7 +112,7 @@ func TestOpenCVExtractor_TestdataMatrix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read reference: %v", err)
 	}
-	refSig, refImage, err := ext.Compute(ctx, refBytes)
+	refSig, err := ext.Compute(ctx, refBytes)
 	if err != nil {
 		t.Fatalf("compute reference: %v", err)
 	}
@@ -142,12 +142,12 @@ func TestOpenCVExtractor_TestdataMatrix(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read candidate: %v", err)
 			}
-			candSig, _, err := ext.Compute(ctx, candBytes)
+			candSig, err := ext.Compute(ctx, candBytes)
 			if err != nil {
 				t.Fatalf("compute candidate: %v", err)
 			}
 
-			decision, err := ext.Match(ctx, refSig, candSig, refImage, candBytes)
+			decision, err := ext.Match(ctx, refSig, candSig, candBytes)
 			if err != nil {
 				t.Fatalf("match: %v", err)
 			}
@@ -183,7 +183,7 @@ func TestOpenCVExtractor_LargeCandidateScale(t *testing.T) {
 		t.Fatalf("read reference: %v", err)
 	}
 
-	refSig, refImage, err := ext.Compute(ctx, refBytes)
+	refSig, err := ext.Compute(ctx, refBytes)
 	if err != nil {
 		t.Fatalf("compute reference: %v", err)
 	}
@@ -193,12 +193,12 @@ func TestOpenCVExtractor_LargeCandidateScale(t *testing.T) {
 	// noticeably recompressed.
 	candBytes := upscaleRotateRecompress(t, refBytes, 3000, 30)
 
-	candSig, _, err := ext.Compute(ctx, candBytes)
+	candSig, err := ext.Compute(ctx, candBytes)
 	if err != nil {
 		t.Fatalf("compute candidate: %v", err)
 	}
 
-	decision, err := ext.Match(ctx, refSig, candSig, refImage, candBytes)
+	decision, err := ext.Match(ctx, refSig, candSig, candBytes)
 	if err != nil {
 		t.Fatalf("match: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestOpenCVExtractor_RealWorldGlassRail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read reference: %v", err)
 	}
-	refSig, refImage, err := ext.Compute(ctx, refBytes)
+	refSig, err := ext.Compute(ctx, refBytes)
 	if err != nil {
 		t.Fatalf("compute reference: %v", err)
 	}
@@ -249,11 +249,11 @@ func TestOpenCVExtractor_RealWorldGlassRail(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read %s: %v", tc.file, err)
 			}
-			candSig, _, err := ext.Compute(ctx, candBytes)
+			candSig, err := ext.Compute(ctx, candBytes)
 			if err != nil {
 				t.Fatalf("compute %s: %v", tc.file, err)
 			}
-			decision, err := ext.Match(ctx, refSig, candSig, refImage, candBytes)
+			decision, err := ext.Match(ctx, refSig, candSig, candBytes)
 			if err != nil {
 				t.Fatalf("match %s: %v", tc.file, err)
 			}
@@ -299,7 +299,7 @@ func TestOpenCVExtractor_DisplayP3StrippedICC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read reference: %v", err)
 	}
-	refSig, refImage, err := ext.Compute(ctx, refBytes)
+	refSig, err := ext.Compute(ctx, refBytes)
 	if err != nil {
 		t.Fatalf("compute reference: %v", err)
 	}
@@ -307,21 +307,21 @@ func TestOpenCVExtractor_DisplayP3StrippedICC(t *testing.T) {
 	// Baseline: same JPEG re-encode at q=90 without the P3 transform. Any
 	// residual here is the cost of the JPEG round-trip alone.
 	baselineBytes := reencodeJPEG(t, refBytes, 90)
-	baselineSig, _, err := ext.Compute(ctx, baselineBytes)
+	baselineSig, err := ext.Compute(ctx, baselineBytes)
 	if err != nil {
 		t.Fatalf("compute baseline: %v", err)
 	}
-	baselineDec, err := ext.Match(ctx, refSig, baselineSig, refImage, baselineBytes)
+	baselineDec, err := ext.Match(ctx, refSig, baselineSig, baselineBytes)
 	if err != nil {
 		t.Fatalf("match baseline: %v", err)
 	}
 
 	candBytes := reencodeAsDisplayP3Pixels(t, refBytes, 90)
-	candSig, _, err := ext.Compute(ctx, candBytes)
+	candSig, err := ext.Compute(ctx, candBytes)
 	if err != nil {
 		t.Fatalf("compute candidate: %v", err)
 	}
-	decision, err := ext.Match(ctx, refSig, candSig, refImage, candBytes)
+	decision, err := ext.Match(ctx, refSig, candSig, candBytes)
 	if err != nil {
 		t.Fatalf("match: %v", err)
 	}

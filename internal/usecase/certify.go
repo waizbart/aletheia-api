@@ -17,11 +17,10 @@ type CertifyUseCase struct {
 	repo      CertificateRepository
 	chain     BlockchainService
 	extractor FeatureExtractor
-	blobs     ImageBlobStore
 }
 
-func NewCertifyUseCase(repo CertificateRepository, chain BlockchainService, extractor FeatureExtractor, blobs ImageBlobStore) *CertifyUseCase {
-	return &CertifyUseCase{repo: repo, chain: chain, extractor: extractor, blobs: blobs}
+func NewCertifyUseCase(repo CertificateRepository, chain BlockchainService, extractor FeatureExtractor) *CertifyUseCase {
+	return &CertifyUseCase{repo: repo, chain: chain, extractor: extractor}
 }
 
 type CertifyInput struct {
@@ -87,10 +86,9 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (out *Ce
 	})
 
 	var signature *domain.FeatureSignature
-	var blobKey string
 	if phash != nil {
 		extractHandle := rec.StartStage(ctx, "orb_extract")
-		sig, jpegBytes, ferr := uc.extractor.Compute(ctx, content)
+		sig, ferr := uc.extractor.Compute(ctx, content)
 		if ferr != nil {
 			// Extraction failure is non-fatal: the certificate is still anchored
 			// with a phash-only commitment. Preserve that behavior.
@@ -101,17 +99,10 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (out *Ce
 			extractHandle.SetAttrs(
 				observability.Attr{Key: "keypoints", Value: sig.KeypointCount()},
 				observability.Attr{Key: "descriptors", Value: sig.DescriptorCount()},
-				observability.Attr{Key: "jpeg_bytes", Value: len(jpegBytes)},
+				observability.Attr{Key: "color_grid_bytes", Value: len(sig.ColorGrid)},
 			)
 			extractHandle.End()
 			signature = sig
-			blobKey = contentHash + ".jpg"
-			if err = observability.StageVoid(ctx, "blob_put", func(h observability.StageHandle) error {
-				h.SetAttrs(observability.Attr{Key: "blob_key", Value: blobKey})
-				return uc.blobs.Put(ctx, blobKey, jpegBytes)
-			}); err != nil {
-				return nil, fmt.Errorf("certify: storing image blob: %w", err)
-			}
 		}
 	}
 
@@ -143,7 +134,6 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (out *Ce
 		PHash:             phash,
 		Signature:         signature,
 		FeatureCommitment: &commitment,
-		ImageBlobKey:      blobKey,
 		Registrant:        in.Registrant,
 		TxHash:            txHash,
 		BlockNumber:       blockNum,

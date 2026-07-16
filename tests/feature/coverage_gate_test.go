@@ -31,7 +31,7 @@ func TestOpenCVExtractor_CoverageGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read reference: %v", err)
 	}
-	refSig, refImage, err := ext.Compute(ctx, refBytes)
+	refSig, err := ext.Compute(ctx, refBytes)
 	if err != nil {
 		t.Fatalf("compute reference: %v", err)
 	}
@@ -78,11 +78,11 @@ func TestOpenCVExtractor_CoverageGate(t *testing.T) {
 			if buildErr != nil {
 				t.Fatalf("build %s: %v", tc.entryName, buildErr)
 			}
-			candSig, _, cerr := ext.Compute(ctx, candBytes)
+			candSig, cerr := ext.Compute(ctx, candBytes)
 			if cerr != nil {
 				t.Fatalf("compute %s: %v", tc.entryName, cerr)
 			}
-			dec, merr := ext.Match(ctx, refSig, candSig, refImage, candBytes)
+			dec, merr := ext.Match(ctx, refSig, candSig, candBytes)
 			if merr != nil {
 				t.Fatalf("match %s: %v", tc.entryName, merr)
 			}

@@ -16,22 +16,22 @@ import (
 //go:embed static/observability
 var obsStaticFS embed.FS
 
-// BlobReader is the read-only slice of the image blob store the dashboard needs
-// to render candidate thumbnails. Declared here so the handler stays decoupled
-// from the concrete S3 implementation.
-type BlobReader interface {
-	Get(ctx context.Context, key string) ([]byte, error)
+// ThumbnailProvider renders a small preview image for a certified content
+// hash. Backed by the thumbnail use case, which reconstructs it from the
+// certificate's stored color grid — no image blobs are stored anywhere.
+type ThumbnailProvider interface {
+	Execute(ctx context.Context, contentHash string) ([]byte, error)
 }
 
-// blobKeyPattern restricts servable blob keys to the content-addressed form the
-// pipeline produces (64-hex sha256 + ".jpg"). This blocks arbitrary-key reads
-// through the public dashboard endpoint.
-var blobKeyPattern = regexp.MustCompile(`^[a-f0-9]{64}\.jpg$`)
+// thumbHashPattern restricts servable thumbnails to content-addressed hashes
+// (64-hex sha256). This blocks arbitrary-key probing through the public
+// dashboard endpoint.
+var thumbHashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // RegisterObservabilityRoutes mounts the live pipeline dashboard, its SSE event
-// stream, the recent-trace history API and the candidate-thumbnail blob proxy,
+// stream, the recent-trace history API and the candidate-thumbnail renderer,
 // all under /observability.
-func RegisterObservabilityRoutes(mux *http.ServeMux, c *observability.Collector, blobs BlobReader) {
+func RegisterObservabilityRoutes(mux *http.ServeMux, c *observability.Collector, thumbs ThumbnailProvider) {
 	sub, err := fs.Sub(obsStaticFS, "static/observability")
 	if err != nil {
 		panic(fmt.Sprintf("observability static fs: %v", err))
@@ -60,26 +60,26 @@ func RegisterObservabilityRoutes(mux *http.ServeMux, c *observability.Collector,
 		writeJSON(w, http.StatusOK, t)
 	})
 
-	mux.HandleFunc("GET /observability/blob/{key}", func(w http.ResponseWriter, r *http.Request) {
-		serveBlob(w, r, blobs)
+	mux.HandleFunc("GET /observability/thumb/{hash}", func(w http.ResponseWriter, r *http.Request) {
+		serveThumbnail(w, r, thumbs)
 	})
 }
 
-// serveBlob streams a stored image so the dashboard can render candidate
-// thumbnails. Keys are validated against the content-addressed pattern; bytes
-// are immutable (keyed by content hash) so they are cached aggressively.
-func serveBlob(w http.ResponseWriter, r *http.Request, blobs BlobReader) {
-	key := r.PathValue("key")
-	if !blobKeyPattern.MatchString(key) {
-		writeError(w, http.StatusBadRequest, "invalid blob key")
+// serveThumbnail renders a candidate preview from the certificate's stored
+// color grid. Hashes are validated against the content-addressed pattern; the
+// grid is immutable for a given content hash so responses cache aggressively.
+func serveThumbnail(w http.ResponseWriter, r *http.Request, thumbs ThumbnailProvider) {
+	hash := r.PathValue("hash")
+	if !thumbHashPattern.MatchString(hash) {
+		writeError(w, http.StatusBadRequest, "invalid content hash")
 		return
 	}
-	data, err := blobs.Get(r.Context(), key)
+	data, err := thumbs.Execute(r.Context(), hash)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "blob not found")
+		writeError(w, http.StatusNotFound, "thumbnail not found")
 		return
 	}
-	w.Header().Set("Content-Type", http.DetectContentType(data))
+	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Write(data)
 }

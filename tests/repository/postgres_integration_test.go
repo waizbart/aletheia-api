@@ -3,6 +3,7 @@
 package repository_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"os"
@@ -56,12 +57,19 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 		refPHash[i] = byte(0xA0 | (i & 0x0F))
 	}
 
+	refGrid := make([]byte, domain.ColorGridBytes)
+	for i := range refGrid {
+		refGrid[i] = byte(i % 253)
+	}
 	refCert := &domain.Certificate{
 		ContentHash: "ref-content-hash-" + uniqueSuffix(t),
 		PHash:       &refPHash,
 		Signature: &domain.FeatureSignature{
 			Descriptors: []byte{0xDE, 0xAD},
 			Keypoints:   []byte{0xBE, 0xEF},
+			ColorGrid:   refGrid,
+			RefWidth:    1024,
+			RefHeight:   768,
 		},
 		Registrant:  "tester",
 		TxHash:      "0xref",
@@ -209,6 +217,55 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 		}
 		if *got.FeatureCommitment != commit {
 			t.Fatalf("commitment mismatch: got %x want %x", *got.FeatureCommitment, commit)
+		}
+	})
+
+	t.Run("color grid and reference dims round-trip", func(t *testing.T) {
+		got, err := repo.FindByHash(ctx, refCert.ContentHash)
+		if err != nil {
+			t.Fatalf("find by hash: %v", err)
+		}
+		if got == nil || got.Signature == nil {
+			t.Fatal("expected cert with signature")
+		}
+		if !got.Signature.HasColorGrid() {
+			t.Fatalf("expected hydrated color grid, got %d bytes %dx%d",
+				len(got.Signature.ColorGrid), got.Signature.RefWidth, got.Signature.RefHeight)
+		}
+		if !bytes.Equal(got.Signature.ColorGrid, refGrid) {
+			t.Fatal("color grid bytes changed across save/load")
+		}
+		if got.Signature.RefWidth != 1024 || got.Signature.RefHeight != 768 {
+			t.Fatalf("ref dims = %dx%d, want 1024x768", got.Signature.RefWidth, got.Signature.RefHeight)
+		}
+
+		// The candidate query used by verify must hydrate the grid too — that
+		// is where Match reads it from.
+		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{refPHash}, domain.MaxPHashDistance, 10)
+		if err != nil {
+			t.Fatalf("find candidates: %v", err)
+		}
+		for _, h := range hits {
+			if h.ID == refCert.ID {
+				if !h.Signature.HasColorGrid() {
+					t.Fatal("candidate query did not hydrate the color grid")
+				}
+				return
+			}
+		}
+		t.Fatal("ref cert not among candidates")
+	})
+
+	t.Run("cert without color grid loads with HasColorGrid false", func(t *testing.T) {
+		got, err := repo.FindByHash(ctx, farCert.ContentHash)
+		if err != nil {
+			t.Fatalf("find by hash: %v", err)
+		}
+		if got == nil || got.Signature == nil {
+			t.Fatal("expected cert with signature")
+		}
+		if got.Signature.HasColorGrid() {
+			t.Fatal("cert saved without grid must not report HasColorGrid")
 		}
 	})
 }

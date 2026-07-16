@@ -19,7 +19,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 		name      string
 		repo      *mockRepo
 		extractor *mockExtractor
-		blobs     *mockBlobStore
 		input     usecase.VerifyInput
 		wantCert  bool
 		wantErr   string
@@ -32,7 +31,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
 			input:     usecase.VerifyInput{Hash: "abc123"},
 			wantCert:  true,
 		},
@@ -44,7 +42,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
 			input:     usecase.VerifyInput{Hash: "abc123"},
 			wantCert:  false,
 		},
@@ -56,7 +53,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
 			input:     usecase.VerifyInput{Content: strings.NewReader("test content")},
 			wantCert:  true,
 		},
@@ -64,7 +60,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 			name:      "no hash no content",
 			repo:      &mockRepo{},
 			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
 			input:     usecase.VerifyInput{},
 			wantErr:   "no content or hash provided",
 		},
@@ -72,7 +67,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 			name:      "hash error from broken reader",
 			repo:      &mockRepo{},
 			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
 			input:     usecase.VerifyInput{Content: errReader{}},
 			wantErr:   "hashing content",
 		},
@@ -84,7 +78,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
 			input:     usecase.VerifyInput{Hash: "abc123"},
 			wantErr:   "db error",
 		},
@@ -96,7 +89,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
 			input:     usecase.VerifyInput{Content: strings.NewReader("not an image")},
 			wantCert:  false,
 		},
@@ -118,20 +110,18 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 					}
 					storedPHash := phashes[0]
 					return []*domain.Certificate{{
-						ID:           "cert-1",
-						ContentHash:  "stored",
-						Signature:    &domain.FeatureSignature{Descriptors: []byte{0x01}, Keypoints: []byte{0x02}},
-						PHash:        &storedPHash,
-						ImageBlobKey: "stored.jpg",
+						ID:          "cert-1",
+						ContentHash: "stored",
+						Signature:   signatureWithGrid(),
+						PHash:       &storedPHash,
 					}}, nil
 				},
 			},
 			extractor: &mockExtractor{
-				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
+				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _ []byte) (domain.MatchDecision, error) {
 					return domain.MatchDecision{Matched: true, Inliers: 100, ColorMean: 1.0, ColorMax: 5.0, Coverage: 1.0}, nil
 				},
 			},
-			blobs:    &mockBlobStore{},
 			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
 			wantCert: true,
 		},
@@ -143,18 +133,16 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
 					return []*domain.Certificate{{
-						ID:           "cert-1",
-						Signature:    &domain.FeatureSignature{Descriptors: []byte{0x01}, Keypoints: []byte{0x02}},
-						ImageBlobKey: "stored.jpg",
+						ID:        "cert-1",
+						Signature: signatureWithGrid(),
 					}}, nil
 				},
 			},
 			extractor: &mockExtractor{
-				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
+				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _ []byte) (domain.MatchDecision, error) {
 					return domain.MatchDecision{Matched: false, Inliers: 5}, nil
 				},
 			},
-			blobs:    &mockBlobStore{},
 			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
 			wantCert: false,
 		},
@@ -166,16 +154,16 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
 					return []*domain.Certificate{
-						{ID: "color-mean", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}, ImageBlobKey: "mean.jpg"},
-						{ID: "color-max", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}, ImageBlobKey: "max.jpg"},
-						{ID: "coverage", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}, ImageBlobKey: "coverage.jpg"},
+						{ID: "color-mean", Signature: signatureWithGrid()},
+						{ID: "color-max", Signature: signatureWithGrid()},
+						{ID: "coverage", Signature: signatureWithGrid()},
 					}, nil
 				},
 			},
 			extractor: &mockExtractor{
-				matchFn: func() func(context.Context, *domain.FeatureSignature, *domain.FeatureSignature, []byte, []byte) (domain.MatchDecision, error) {
+				matchFn: func() func(context.Context, *domain.FeatureSignature, *domain.FeatureSignature, []byte) (domain.MatchDecision, error) {
 					call := 0
-					return func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
+					return func(_ context.Context, _, _ *domain.FeatureSignature, _ []byte) (domain.MatchDecision, error) {
 						call++
 						switch call {
 						case 1:
@@ -203,7 +191,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 					}
 				}(),
 			},
-			blobs:    &mockBlobStore{},
 			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
 			wantCert: false,
 		},
@@ -218,7 +205,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
 			input:     usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
 			wantCert:  false,
 		},
@@ -233,7 +219,6 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
 			input:     usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
 			wantErr:   "phash db error",
 		},
@@ -245,31 +230,35 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			extractor: &mockExtractor{
-				computeFn: func(_ context.Context, _ []byte) (*domain.FeatureSignature, []byte, error) {
-					return nil, nil, errors.New("no features")
+				computeFn: func(_ context.Context, _ []byte) (*domain.FeatureSignature, error) {
+					return nil, errors.New("no features")
 				},
 			},
-			blobs:    &mockBlobStore{},
 			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
 			wantCert: false,
 		},
 		{
-			name: "candidates with nil signature or empty blob key are skipped",
+			name: "candidates with nil signature or missing color grid are skipped",
 			repo: &mockRepo{
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
 				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
 					return []*domain.Certificate{
-						{ID: "no-sig", ImageBlobKey: "x.jpg"},
-						{ID: "no-blob", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}},
+						{ID: "no-sig"},
+						{ID: "no-grid", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}},
+						{ID: "bad-grid", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}, ColorGrid: []byte{1, 2, 3}, RefWidth: 10, RefHeight: 10}},
 					}, nil
 				},
 			},
-			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
-			input:     usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
-			wantCert:  false,
+			extractor: &mockExtractor{
+				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _ []byte) (domain.MatchDecision, error) {
+					t.Fatal("Match must not be called for candidates without a valid color grid")
+					return domain.MatchDecision{}, nil
+				},
+			},
+			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
+			wantCert: false,
 		},
 		{
 			name: "extractor match error skips candidate",
@@ -279,18 +268,16 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
 					return []*domain.Certificate{{
-						ID:           "cert-1",
-						Signature:    &domain.FeatureSignature{Descriptors: []byte{0x01}},
-						ImageBlobKey: "stored.jpg",
+						ID:        "cert-1",
+						Signature: signatureWithGrid(),
 					}}, nil
 				},
 			},
 			extractor: &mockExtractor{
-				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
+				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _ []byte) (domain.MatchDecision, error) {
 					return domain.MatchDecision{}, errors.New("match boom")
 				},
 			},
-			blobs:    &mockBlobStore{},
 			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
 			wantCert: false,
 		},
@@ -302,35 +289,33 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				},
 			},
 			extractor: &mockExtractor{},
-			blobs:     &mockBlobStore{},
 			input:     usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
 			wantErr:   "hash db down",
 		},
 		{
-			name: "blob fetch failure skips candidate but continues",
+			name: "match error on first candidate does not stop later candidates",
 			repo: &mockRepo{
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
 				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
 					return []*domain.Certificate{
-						{ID: "broken", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}, ImageBlobKey: "missing.jpg"},
-						{ID: "ok", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}, ImageBlobKey: "ok.jpg"},
+						{ID: "broken", Signature: signatureWithGrid()},
+						{ID: "ok", Signature: signatureWithGrid()},
 					}, nil
 				},
 			},
 			extractor: &mockExtractor{
-				matchFn: func(_ context.Context, _, _ *domain.FeatureSignature, _, _ []byte) (domain.MatchDecision, error) {
-					return domain.MatchDecision{Matched: true}, nil
-				},
-			},
-			blobs: &mockBlobStore{
-				getFn: func(_ context.Context, key string) ([]byte, error) {
-					if key == "missing.jpg" {
-						return nil, errors.New("not found")
+				matchFn: func() func(context.Context, *domain.FeatureSignature, *domain.FeatureSignature, []byte) (domain.MatchDecision, error) {
+					call := 0
+					return func(_ context.Context, _, _ *domain.FeatureSignature, _ []byte) (domain.MatchDecision, error) {
+						call++
+						if call == 1 {
+							return domain.MatchDecision{}, errors.New("match boom")
+						}
+						return domain.MatchDecision{Matched: true}, nil
 					}
-					return []byte("ref"), nil
-				},
+				}(),
 			},
 			input:    usecase.VerifyInput{Content: bytes.NewReader(sampleJPEG(t))},
 			wantCert: true,
@@ -339,7 +324,7 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uc := usecase.NewVerifyUseCase(tt.repo, tt.extractor, tt.blobs)
+			uc := usecase.NewVerifyUseCase(tt.repo, tt.extractor)
 			out, err := uc.Execute(context.Background(), tt.input)
 
 			if tt.wantErr != "" {
