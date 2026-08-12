@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type RPCBlockchainService struct {
@@ -32,9 +33,14 @@ func NewEVMBlockchainService(rpcURL, fromAddress, anchorAddress string) (*RPCBlo
 		rpcURL:      rpcURL,
 		fromAddress: fromAddress,
 		toAddress:   anchorAddress,
-		httpClient:  &http.Client{},
+		// An RPC node that accepts the connection and then stalls would
+		// otherwise pin the calling request handler forever.
+		httpClient: &http.Client{Timeout: rpcTimeout},
 	}, nil
 }
+
+// rpcTimeout bounds every JSON-RPC round trip.
+const rpcTimeout = 30 * time.Second
 
 func (s *RPCBlockchainService) RegisterHash(ctx context.Context, contentHash, featureCommitment string) (string, uint64, error) {
 	contentBytes, err := normalizeHashToBytes(contentHash)

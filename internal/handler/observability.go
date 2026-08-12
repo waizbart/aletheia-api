@@ -31,27 +31,36 @@ var thumbHashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 // RegisterObservabilityRoutes mounts the live pipeline dashboard, its SSE event
 // stream, the recent-trace history API and the candidate-thumbnail renderer,
 // all under /observability.
-func RegisterObservabilityRoutes(mux *http.ServeMux, c *observability.Collector, thumbs ThumbnailProvider) {
+//
+// The dashboard replays content hashes, verification verdicts and pipeline
+// internals, so the whole prefix sits behind admin: pass
+// handler.AdminAuth(token) in production. Routes are registered on a private
+// mux that is mounted once behind the guard, which keeps the guard impossible
+// to forget on a route added later. A nil admin leaves the dashboard open and
+// is intended only for local development and tests.
+func RegisterObservabilityRoutes(mux *http.ServeMux, c *observability.Collector, thumbs ThumbnailProvider, admin func(http.Handler) http.Handler) {
 	sub, err := fs.Sub(obsStaticFS, "static/observability")
 	if err != nil {
 		panic(fmt.Sprintf("observability static fs: %v", err))
 	}
 	fileServer := http.FileServer(http.FS(sub))
 
-	mux.HandleFunc("GET /observability", func(w http.ResponseWriter, r *http.Request) {
+	obs := http.NewServeMux()
+
+	obs.HandleFunc("GET /observability", func(w http.ResponseWriter, r *http.Request) {
 		serveObsFile(w, sub, "index.html", "text/html; charset=utf-8")
 	})
-	mux.Handle("GET /observability/static/", http.StripPrefix("/observability/static/", fileServer))
+	obs.Handle("GET /observability/static/", http.StripPrefix("/observability/static/", fileServer))
 
-	mux.HandleFunc("GET /observability/events", func(w http.ResponseWriter, r *http.Request) {
+	obs.HandleFunc("GET /observability/events", func(w http.ResponseWriter, r *http.Request) {
 		streamEvents(w, r, c)
 	})
 
-	mux.HandleFunc("GET /observability/traces", func(w http.ResponseWriter, r *http.Request) {
+	obs.HandleFunc("GET /observability/traces", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, c.Recent())
 	})
 
-	mux.HandleFunc("GET /observability/traces/{id}", func(w http.ResponseWriter, r *http.Request) {
+	obs.HandleFunc("GET /observability/traces/{id}", func(w http.ResponseWriter, r *http.Request) {
 		t := c.Get(r.PathValue("id"))
 		if t == nil {
 			writeError(w, http.StatusNotFound, "trace not found")
@@ -60,9 +69,13 @@ func RegisterObservabilityRoutes(mux *http.ServeMux, c *observability.Collector,
 		writeJSON(w, http.StatusOK, t)
 	})
 
-	mux.HandleFunc("GET /observability/thumb/{hash}", func(w http.ResponseWriter, r *http.Request) {
+	obs.HandleFunc("GET /observability/thumb/{hash}", func(w http.ResponseWriter, r *http.Request) {
 		serveThumbnail(w, r, thumbs)
 	})
+
+	guarded := orIdentity(admin)(obs)
+	mux.Handle("GET /observability", guarded)
+	mux.Handle("/observability/", guarded)
 }
 
 // serveThumbnail renders a candidate preview from the certificate's stored

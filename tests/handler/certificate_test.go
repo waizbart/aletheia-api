@@ -58,7 +58,7 @@ func setupMux(cert *mockCertifier, ver *mockVerifier) *http.ServeMux {
 func setupMuxFull(cert *mockCertifier, ver *mockVerifier, del *mockDeleter) *http.ServeMux {
 	mux := http.NewServeMux()
 	h := handler.NewCertificateHandler(cert, ver, del)
-	h.RegisterRoutes(mux)
+	h.RegisterRoutes(mux, nil)
 	return mux
 }
 

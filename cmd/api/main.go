@@ -80,19 +80,47 @@ func main() {
 	deleteUC := usecase.NewDeleteUseCase(certRepo)
 	thumbnailUC := usecase.NewThumbnailUseCase(certRepo, extractor)
 
+	adminToken := config.EnvOrDefault("ADMIN_API_TOKEN", "")
+	if adminToken == "" {
+		log.Println("WARNING: ADMIN_API_TOKEN is unset — certificate deletion and the observability dashboard will reject every request")
+	}
+	admin := handler.AdminAuth(adminToken)
+
 	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC)
 
 	mux := http.NewServeMux()
-	certHandler.RegisterRoutes(mux)
+	certHandler.RegisterRoutes(mux, admin)
 	handler.RegisterDocsRoutes(mux)
 	handler.RegisterHealthRoutes(mux)
-	handler.RegisterObservabilityRoutes(mux, collector, thumbnailUC)
+	handler.RegisterObservabilityRoutes(mux, collector, thumbnailUC, admin)
 
 	corsOrigins := strings.Split(config.EnvOrDefault("CORS_ALLOWED_ORIGINS", "*"), ",")
-	wrapped := handler.LoggingMiddleware(handler.CORS(corsOrigins)(handler.ObservabilityMiddleware(obsFactory)(mux)))
+	limiter := handler.NewRateLimiter(
+		config.EnvIntOrDefault("RATE_LIMIT_RPS", 20),
+		config.EnvIntOrDefault("RATE_LIMIT_BURST", 40),
+	)
+	trustProxyHeaders := config.EnvBoolOrDefault("TRUST_PROXY_HEADERS", false)
+
+	// Order matters: logging sees every request, CORS answers preflights before
+	// they consume rate-limit budget, and the concurrency cap sits closest to
+	// the mux so it bounds only work that actually reaches a handler.
+	wrapped := handler.LoggingMiddleware(
+		handler.CORS(corsOrigins)(
+			handler.RateLimit(limiter, trustProxyHeaders)(
+				handler.ConcurrencyLimit(config.EnvIntOrDefault("MAX_CONCURRENT_REQUESTS", 32))(
+					handler.ObservabilityMiddleware(obsFactory)(mux)))))
 
 	port := config.EnvOrDefault("SERVER_PORT", "8080")
-	srv := &http.Server{Addr: fmt.Sprintf(":%s", port), Handler: wrapped}
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%s", port),
+		Handler: wrapped,
+		// ReadTimeout and WriteTimeout stay unset on purpose: uploads run to
+		// 100 MB and the dashboard holds SSE connections open indefinitely, so
+		// a blanket deadline would break both. Slowloris is covered by
+		// ReadHeaderTimeout, and idle connections by IdleTimeout.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	go func() {
 		log.Printf("server listening on %s", srv.Addr)

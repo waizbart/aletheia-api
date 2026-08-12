@@ -27,7 +27,7 @@ func TestJSONResponseContentType(t *testing.T) {
 func TestErrorResponseFormat(t *testing.T) {
 	mux := http.NewServeMux()
 	cert := handler.NewCertificateHandler(&mockCertifier{}, &mockVerifier{}, &mockDeleter{})
-	cert.RegisterRoutes(mux)
+	cert.RegisterRoutes(mux, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/certificates/verify", nil)
 	rr := httptest.NewRecorder()

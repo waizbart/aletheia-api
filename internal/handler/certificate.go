@@ -18,11 +18,26 @@ func NewCertificateHandler(certify Certifier, verify Verifier, delete Deleter) *
 	return &CertificateHandler{certify: certify, verify: verify, delete: delete}
 }
 
-func (h *CertificateHandler) RegisterRoutes(mux *http.ServeMux) {
+// RegisterRoutes mounts the certificate endpoints. admin wraps the routes that
+// mutate or expose the registry beyond public verification; pass
+// handler.AdminAuth(token) in production. A nil admin leaves those routes
+// unguarded and is intended only for tests that exercise the handlers directly.
+func (h *CertificateHandler) RegisterRoutes(mux *http.ServeMux, admin func(http.Handler) http.Handler) {
+	guard := orIdentity(admin)
+
 	mux.HandleFunc("POST /certificates", h.handleCertify)
 	mux.HandleFunc("GET /certificates/verify", h.handleVerifyByHash)
 	mux.HandleFunc("POST /certificates/verify", h.handleVerifyByFile)
-	mux.HandleFunc("DELETE /certificates/{hash}", h.handleDelete)
+	mux.Handle("DELETE /certificates/{hash}", guard(http.HandlerFunc(h.handleDelete)))
+}
+
+// orIdentity substitutes a pass-through for a nil middleware so callers can
+// omit a guard without every registration site branching.
+func orIdentity(mw func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	if mw == nil {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return mw
 }
 
 func (h *CertificateHandler) handleCertify(w http.ResponseWriter, r *http.Request) {

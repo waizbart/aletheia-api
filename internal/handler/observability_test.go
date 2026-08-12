@@ -43,7 +43,7 @@ func newObsServer(c *observability.Collector) *httptest.Server {
 
 func newObsServerWithThumbs(c *observability.Collector, thumbs ThumbnailProvider) *httptest.Server {
 	mux := http.NewServeMux()
-	RegisterObservabilityRoutes(mux, c, thumbs)
+	RegisterObservabilityRoutes(mux, c, thumbs, nil)
 	return httptest.NewServer(mux)
 }
 
