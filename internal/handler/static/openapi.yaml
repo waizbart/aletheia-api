@@ -31,10 +31,22 @@ info:
 
     ## Autenticação
 
-    A API ainda não exige autenticação. O header `X-Registrant` é
-    apenas registrado no certificado; em produção precisa vir
-    combinado com auth real antes de ser tratado como prova de
-    proveniência.
+    Três níveis, deliberadamente distintos:
+
+    - **Público** — sem credencial. Alcança `/health`, `/docs` e a
+      verificação. A verificação é a metade gratuita do produto e
+      nunca é bloqueada.
+    - **Tenant** — `Authorization: Bearer alk_…`. Alcança captura,
+      inscrição de dispositivos e consumo. Apenas o hash SHA-256 da
+      chave é armazenado; o texto puro existe uma única vez, na
+      resposta que a criou.
+    - **Admin** — `Authorization: Bearer <ADMIN_API_TOKEN>`. Alcança
+      criação de organizações e chaves, remoção de certificados e o
+      painel de observabilidade.
+
+    Certificar é fechado: só uma captura assinada por um dispositivo
+    inscrito vira certificado. O upload direto (`POST /certificates`)
+    fica desligado salvo `ALLOW_UNATTESTED_CERTIFY=true`.
   contact:
     name: Aletheia
     url: https://github.com/waizbart/aletheia-api
@@ -53,8 +65,14 @@ externalDocs:
   url: https://github.com/waizbart/aletheia-api
 
 tags:
+  - name: Captures
+    description: Captura atestada — a via fechada de certificação.
+  - name: Devices
+    description: Inscrição e revogação de dispositivos de captura.
   - name: Certificates
-    description: Registro e verificação de certificados de mídia.
+    description: Verificação de certificados, remoção e a via de upload legada.
+  - name: Admin
+    description: Onboarding de organizações e credenciais.
   - name: Health
     description: Endpoints de saúde do serviço.
 
@@ -77,20 +95,249 @@ paths:
                 ok:
                   value: { status: "ok" }
 
+  /captures/nonce:
+    post:
+      tags: [Captures]
+      summary: Emite um desafio de captura
+      description: |
+        Devolve um nonce de uso único e curta validade. É o que
+        transforma "assinado por este dispositivo" em "assinado por
+        este dispositivo, agora, para nós": sem desafio, uma captura
+        assinada poderia ser reenviada indefinidamente.
+      operationId: issueCaptureNonce
+      security: [{ TenantKey: [] }]
+      responses:
+        "201":
+          description: Desafio emitido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptureNonce"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /captures:
+    post:
+      tags: [Captures]
+      summary: Certifica uma captura atestada
+      description: |
+        Recebe a imagem junto da assinatura que o dispositivo produziu
+        sobre `SHA-256(bytes) ‖ nonce ‖ metadados`, confere contra a
+        chave fixada na inscrição e certifica.
+
+        Os bytes assinados precisam ser exatamente os bytes enviados —
+        um reencode no app invalida a assinatura. Extrai pHash,
+        descritores ORB e grade de cores LAB; **nenhuma imagem é
+        armazenada**.
+
+        A ancoragem on-chain acontece depois, em lote, num worker em
+        segundo plano. O certificado já é válido e verificável antes
+        disso.
+      operationId: certifyCapture
+      security: [{ TenantKey: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CaptureRequest"
+            encoding:
+              file:
+                contentType: >-
+                  image/jpeg, image/png, image/gif, image/webp,
+                  image/bmp, image/tiff
+      responses:
+        "201":
+          description: Captura certificada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Certificate"
+        "400":
+          description: Campo malformado (`signature` não é base64, `captured_at` não é RFC 3339).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "402":
+          description: Cota do plano esgotada no período corrente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                cota:
+                  value: { error: "quota check: plan quota exceeded: attested_capture allowance of 500 for plan \"developer\" is spent" }
+        "403":
+          description: Assinatura não confere, ou dispositivo revogado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                assinatura:
+                  value: { error: "capture signature does not verify against the enrolled device key" }
+                revogado:
+                  value: { error: "device is revoked" }
+        "404":
+          description: Dispositivo não inscrito nesta organização.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Desafio desconhecido, expirado ou já usado; ou conteúdo já certificado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Arquivo excede o limite de upload (100 MB).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+
+  /devices:
+    post:
+      tags: [Devices]
+      summary: Inscreve um dispositivo
+      description: |
+        Verifica a atestação de plataforma e fixa a chave pública do
+        dispositivo. A partir daí, as capturas são conferidas contra
+        essa chave — a atestação, cara, roda uma vez só.
+
+        A política Android exige: cadeia até uma raiz de hardware do
+        Google, desafio igual ao nonce emitido, chave residente em
+        TEE/StrongBox e **gerada** em hardware, bootloader travado e
+        verificado, e app com package e digest de assinatura
+        autorizados.
+      operationId: enrollDevice
+      security: [{ TenantKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollRequest"
+      responses:
+        "201":
+          description: Dispositivo inscrito.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          description: Corpo inválido, ou `cert_chain` vazia/longa demais/não base64.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Atestação recusada. A razão nomeia o portão que falhou,
+            porque quem está integrando um SDK precisa saber qual.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                bootloader:
+                  value: { error: "attestation rejected: device bootloader is unlocked" }
+                software:
+                  value: { error: "attestation rejected: key security level \"software\" is below the required \"tee\"" }
+                app:
+                  value: { error: "attestation rejected: application is signed by an unrecognised key" }
+        "409":
+          description: Desafio desconhecido, expirado ou já usado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "501":
+          description: |
+            Plataforma sem verificador configurado. iOS App Attest
+            chega junto com o SDK de iOS; até lá uma inscrição iOS é
+            recusada em vez de aceita numa checagem mais fraca.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /devices/{id}/revoke:
+    post:
+      tags: [Devices]
+      summary: Revoga um dispositivo
+      description: |
+        Impede novas capturas. Os certificados que o dispositivo já
+        produziu **permanecem** no registro: são o registro do que um
+        dispositivo hoje desconfiado produziu, que é exatamente o que
+        uma investigação precisa.
+      operationId: revokeDevice
+      security: [{ TenantKey: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, example: "aparelho perdido" }
+      responses:
+        "204":
+          description: Dispositivo revogado. Sem corpo.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Dispositivo não encontrado nesta organização.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /usage:
+    get:
+      tags: [Captures]
+      summary: Consumo do período corrente
+      operationId: getUsage
+      security: [{ TenantKey: [] }]
+      responses:
+        "200":
+          description: Consumo por operação no mês corrente (UTC).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /certificates:
     post:
       tags: [Certificates]
-      summary: Certifica uma imagem
+      summary: Certifica um upload sem atestação (legado)
       description: |
-        Recebe um upload de imagem, calcula `SHA-256`, ancora o par
-        `(contentHash, featureCommitment)` em uma transação EVM e
-        persiste o certificado.
+        Rota de migração para integrações anteriores ao SDK.
 
-        Extrai um perceptual hash de 256 bits, descritores ORB e uma
-        grade de cores LAB (128×128 médias por célula) via OpenCV; a
-        grade fica no certificado para a re-checagem visual — nenhuma
-        imagem é armazenada.
+        Fica **desligada** salvo `ALLOW_UNATTESTED_CERTIFY=true`, e
+        responde `410 Gone` quando desligada. Um upload que ninguém
+        endossou é exatamente o que a captura atestada substitui:
+        deixá-la ligada permitiria cunhar certificados que parecem
+        oficiais mas não provam nada sobre origem.
+
+        O certificado resultante traz `attested: false`.
       operationId: certifyContent
+      security: [{ TenantKey: [] }]
       parameters:
         - $ref: "#/components/parameters/RegistrantHeader"
       requestBody:
@@ -116,6 +363,8 @@ paths:
                   $ref: "#/components/examples/CertificateImage"
         "400":
           $ref: "#/components/responses/BadFile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "409":
           description: Conteúdo já certificado (mesmo SHA-256).
           content:
@@ -125,28 +374,128 @@ paths:
               examples:
                 duplicado:
                   value: { error: "certify: content already certified" }
+        "410":
+          description: Uploads não atestados estão desligados.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                desligado:
+                  value: { error: "unattested uploads are disabled; certify through POST /captures with an enrolled device" }
         "413":
           description: Arquivo excede o limite de upload (100 MB).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-              examples:
-                grande_demais:
-                  value: { error: "missing or invalid file field" }
         "415":
           $ref: "#/components/responses/UnsupportedMedia"
         "422":
-          description: Falha ao processar (erro de extração, anchor ou persistência).
+          description: Falha ao processar (erro de extração ou persistência).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-              examples:
-                anchor:
-                  value: { error: "certify: registering on chain: rpc error: nonce too low" }
-                storage:
-                  value: { error: "certify: saving certificate: postgres save: timeout" }
+
+  /admin/orgs:
+    post:
+      tags: [Admin]
+      summary: Cria uma organização
+      description: |
+        Onboarding não é self-service de propósito: um registrante só
+        vale alguma coisa se alguém o avaliou.
+      operationId: createOrg
+      security: [{ AdminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: "Acme Seguros" }
+                plan:
+                  type: string
+                  enum: [developer, growth, enterprise]
+                  default: developer
+      responses:
+        "201":
+          description: Organização criada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Org"
+        "400":
+          description: Nome ausente ou plano desconhecido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /admin/orgs/{id}/keys:
+    post:
+      tags: [Admin]
+      summary: Emite uma chave de API
+      description: |
+        O texto puro da chave é devolvido **uma única vez**, aqui. Não
+        é armazenado e não pode ser recuperado — só substituído.
+      operationId: issueApiKey
+      security: [{ AdminToken: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, example: "production" }
+      responses:
+        "201":
+          description: Chave emitida.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKey"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Organização não encontrada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/keys/{id}:
+    delete:
+      tags: [Admin]
+      summary: Revoga uma chave de API
+      operationId: revokeApiKey
+      security: [{ AdminToken: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Chave revogada. Sem corpo.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Chave não encontrada ou já revogada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /certificates/verify:
     get:
@@ -180,6 +529,8 @@ paths:
               examples:
                 vazio:
                   value: { error: "query parameter 'hash' is required" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           description: Nenhum certificado para o hash informado.
           content:
@@ -271,6 +622,7 @@ paths:
         Responde `204 No Content` em caso de sucesso (sem corpo) e
         `404 Not Found` quando não há certificado para o hash.
       operationId: deleteCertificate
+      security: [{ AdminToken: [] }]
       parameters:
         - $ref: "#/components/parameters/HashPath"
       responses:
@@ -295,7 +647,25 @@ paths:
                 interno:
                   value: { error: "delete: postgres delete: timeout" }
 
+security: []
+
 components:
+  securitySchemes:
+    TenantKey:
+      type: http
+      scheme: bearer
+      description: |
+        Chave de API de uma organização (`alk_…`). Toda falha —
+        malformada, desconhecida, revogada, organização suspensa —
+        devolve o mesmo `401`, para que a resposta não sirva de sonda
+        sobre quais credenciais existem.
+    AdminToken:
+      type: http
+      scheme: bearer
+      description: |
+        `ADMIN_API_TOKEN`. Em branco **rejeita tudo** em vez de
+        desligar o guarda.
+
   parameters:
     RegistrantHeader:
       in: header
@@ -334,6 +704,20 @@ components:
       example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
   responses:
+    Unauthorized:
+      description: |
+        Credencial ausente, inválida, revogada ou de organização
+        suspensa. Todas colapsam na mesma resposta de propósito.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            tenant:
+              value: { error: "a valid API key is required" }
+            admin:
+              value: { error: "admin credentials required" }
+
     BadFile:
       description: Campo `file` ausente, vazio ou inválido.
       content:
@@ -397,6 +781,7 @@ components:
         - tx_hash
         - block_number
         - created_at
+        - attested
       properties:
         id:
           type: string
@@ -407,26 +792,218 @@ components:
           $ref: "#/components/schemas/Sha256Hex"
         registrant:
           type: string
-          description: Valor recebido no header `X-Registrant` ao certificar.
-          example: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
+          description: |
+            Organização de registro. Em capturas atestadas é o id da
+            organização autenticada; no caminho legado anônimo é o
+            valor recebido em `X-Registrant`, que nunca foi evidência
+            de nada.
+          example: "9f1c8d2e-4b6a-4c3d-8e7f-1a2b3c4d5e6f"
+        attested:
+          type: boolean
+          description: |
+            Se o conteúdo veio de uma captura por dispositivo inscrito
+            (`true`) ou de um upload comum (`false`). É o campo mais
+            importante para quem verifica: decide o quanto o
+            certificado vale.
+          example: true
+        device_id:
+          type: string
+          format: uuid
+          description: Dispositivo que capturou. Ausente em uploads não atestados.
+          example: "7b2e4f10-9c3d-4a5b-8e6f-0a1b2c3d4e5f"
+        captured_at:
+          type: string
+          format: date-time
+          description: |
+            Instante de captura reportado pelo dispositivo, coberto
+            pela assinatura. Ausente em uploads não atestados.
+          example: "2026-08-12T15:04:05.123456789Z"
         tx_hash:
           allOf:
             - $ref: "#/components/schemas/EvmTxHash"
-          description: Hash da transação EVM que ancorou o certificado.
+          description: |
+            Transação que ancorou o lote deste certificado. Vazia
+            enquanto o certificado aguarda o próximo lote.
         block_number:
           type: integer
           format: int64
           minimum: 0
           description: |
-            Número do bloco que incluiu a transação. **No momento é
-            sempre `0`** porque o serviço não consulta o receipt
-            depois do `eth_sendTransaction`.
-          example: 0
+            Bloco que incluiu a transação, obtido do receipt — sempre
+            um bloco real. Zero enquanto não ancorado.
+          example: 63481022
+        anchor:
+          allOf:
+            - $ref: "#/components/schemas/Anchor"
+          description: |
+            Compromisso on-chain. Ausente enquanto o certificado
+            aguarda o próximo lote.
         created_at:
           type: string
           format: date-time
           description: Instante de criação em UTC (RFC 3339).
-          example: "2026-02-25T12:00:00Z"
+          example: "2026-08-12T15:04:06Z"
+
+    Anchor:
+      type: object
+      description: |
+        Prova de inclusão do certificado na raiz Merkle ancorada.
+        Permite conferir contra a raiz on-chain sem confiar nesta API:
+        recompute a folha como
+        `keccak256(keccak256(contentHash ‖ featureCommitment))` e
+        chame `AnchorRegistry.verify(root, leaf, proof)`.
+      required: [tx_hash, block_number, leaf_index, merkle_proof]
+      properties:
+        tx_hash:
+          $ref: "#/components/schemas/EvmTxHash"
+        block_number:
+          type: integer
+          format: int64
+          example: 63481022
+        leaf_index:
+          type: integer
+          minimum: 0
+          description: Posição do certificado no lote.
+          example: 17
+        merkle_proof:
+          type: array
+          description: Hashes irmãos, da folha para cima, em hex 0x.
+          items:
+            type: string
+            pattern: "^0x[a-f0-9]{64}$"
+
+    CaptureNonce:
+      type: object
+      required: [nonce, expires_at]
+      properties:
+        nonce:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          description: Desafio de uso único.
+        expires_at:
+          type: string
+          format: date-time
+
+    CaptureRequest:
+      type: object
+      required: [file, device_id, nonce, signature, captured_at]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: Bytes exatos que o dispositivo assinou.
+        device_id:
+          type: string
+          format: uuid
+        nonce:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        signature:
+          type: string
+          format: byte
+          description: |
+            Assinatura ECDSA (ASN.1 DER, base64) sobre
+            `"aletheia-capture-v1"` seguido dos campos
+            comprimento-prefixados `contentHash`, `nonce`,
+            `capturedAt`, `model`, `osVersion`, `appVersion`.
+        captured_at:
+          type: string
+          format: date-time
+          description: RFC 3339 com nanossegundos, UTC.
+        model: { type: string, example: "Pixel 8" }
+        os_version: { type: string, example: "14" }
+        app_version: { type: string, example: "1.0.0" }
+
+    EnrollRequest:
+      type: object
+      required: [platform, nonce, cert_chain]
+      properties:
+        platform:
+          type: string
+          enum: [android, ios]
+        nonce:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          description: |
+            O mesmo valor usado como `attestationChallenge` na geração
+            da chave.
+        cert_chain:
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: Cadeia de atestação, folha primeiro, DER em base64.
+          items: { type: string, format: byte }
+        model: { type: string, example: "Pixel 8" }
+
+    Device:
+      type: object
+      required: [id, platform, attestation_level, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        platform: { type: string, enum: [android, ios] }
+        attestation_level:
+          type: string
+          enum: [software, tee, strongbox]
+          description: Onde a chave privada reside.
+        model: { type: string }
+        status: { type: string, enum: [active, revoked] }
+        created_at: { type: string, format: date-time }
+
+    Org:
+      type: object
+      required: [id, name, plan, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        plan: { type: string, enum: [developer, growth, enterprise] }
+        status: { type: string, enum: [active, suspended] }
+        created_at: { type: string, format: date-time }
+
+    ApiKey:
+      type: object
+      required: [id, org_id, prefix, key, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        org_id: { type: string, format: uuid }
+        name: { type: string }
+        prefix:
+          type: string
+          description: Primeiros caracteres, para identificar a chave numa lista.
+          example: "alk_9f1c8d"
+        key:
+          type: string
+          description: |
+            A credencial em texto puro. Devolvida **uma única vez**;
+            não é armazenada e não pode ser recuperada.
+          example: "alk_9f1c8dQm2R5tYu8IoP1aS4dF7gH0jK3lZ6xC9vB2nM5"
+        created_at: { type: string, format: date-time }
+
+    UsageReport:
+      type: object
+      required: [period, plan, operations]
+      properties:
+        period:
+          type: string
+          description: Mês civil em UTC.
+          example: "2026-08"
+        plan: { type: string, enum: [developer, growth, enterprise] }
+        operations:
+          type: array
+          items:
+            type: object
+            required: [operation, used]
+            properties:
+              operation:
+                type: string
+                enum: [attested_capture, verify]
+              used: { type: integer, example: 137 }
+              limit:
+                type: integer
+                nullable: true
+                description: |
+                  Nulo quando o plano não limita a operação — que é
+                  diferente de zero, que leria como "sem franquia".
+                example: 500
 
     VerifyResponse:
       type: object

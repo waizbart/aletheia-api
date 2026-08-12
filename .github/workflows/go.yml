@@ -33,3 +33,30 @@ jobs:
 
     - name: Verify coverage
       run: bash scripts/check-coverage.sh
+
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Foundry
+      uses: foundry-rs/foundry-toolchain@v1
+
+    - name: Install contract dependencies
+      run: |
+        forge install OpenZeppelin/openzeppelin-contracts@v5.1.0 --no-git
+        forge install foundry-rs/forge-std@v1.9.4 --no-git
+
+    - name: Check formatting
+      run: forge fmt --check
+
+    - name: Test
+      run: forge test -vv
+
+    # High-severity findings are release blockers: a registry that records
+    # public claims is only worth what its worst path allows.
+    - name: Static analysis
+      uses: crytic/slither-action@v0.4.0
+      with:
+        fail-on: high
+        slither-args: --filter-paths "lib/"

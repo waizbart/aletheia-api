@@ -30,8 +30,16 @@ func NewRegistryFromEnv() (*Registry, error) {
 	packages := splitList(os.Getenv("ANDROID_ALLOWED_PACKAGES"))
 	digestsHex := splitList(os.Getenv("ANDROID_SIGNATURE_DIGESTS"))
 
+	// With nothing configured, start with no verifiers at all rather than with
+	// a permissive one. The API still serves verification, and device enrolment
+	// reports the platform as unsupported — which is true, and is the only safe
+	// reading of "attestation is not set up yet".
+	if rootsPath == "" && len(packages) == 0 && len(digestsHex) == 0 {
+		return NewRegistry(nil), nil
+	}
+
 	if rootsPath == "" || len(packages) == 0 || len(digestsHex) == 0 {
-		return nil, fmt.Errorf("attestation: ANDROID_ATTESTATION_ROOTS, ANDROID_ALLOWED_PACKAGES and ANDROID_SIGNATURE_DIGESTS are required")
+		return nil, fmt.Errorf("attestation: ANDROID_ATTESTATION_ROOTS, ANDROID_ALLOWED_PACKAGES and ANDROID_SIGNATURE_DIGESTS must be set together")
 	}
 
 	roots, err := LoadRootsPEM(rootsPath)

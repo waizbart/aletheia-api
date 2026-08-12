@@ -33,3 +33,9 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Foundry: dependencies are installed with `forge install`, build output is
+# regenerated. Neither belongs in the repository.
+lib/
+contracts/out/
+cache/

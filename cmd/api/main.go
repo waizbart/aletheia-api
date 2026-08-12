@@ -87,7 +87,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("initializing attestation verifiers: %v", err)
 	}
-	log.Printf("attestation enabled for %v", attestations.Platforms())
+	if platforms := attestations.Platforms(); len(platforms) == 0 {
+		log.Println("WARNING: no attestation verifier configured — device enrolment will report every platform as unsupported")
+	} else {
+		log.Printf("attestation enabled for %v", platforms)
+	}
 
 	certifyUC := usecase.NewCertifyUseCase(certRepo, extractor)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor)
