@@ -26,6 +26,15 @@ func NewCertifyUseCase(repo CertificateRepository, chain BlockchainService, extr
 type CertifyInput struct {
 	Content    io.Reader
 	Registrant string
+	// OrgID scopes the certificate to a tenant.
+	OrgID string
+	// DeviceID is set when the content arrived through the attested capture
+	// path. Empty means an unattested upload, which carries no capture-time
+	// provenance.
+	DeviceID string
+	// CapturedAt is the device-reported capture time, covered by the device
+	// signature. Nil for unattested uploads.
+	CapturedAt *time.Time
 }
 
 type CertifyOutput struct {
@@ -138,6 +147,9 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (out *Ce
 		TxHash:            txHash,
 		BlockNumber:       blockNum,
 		CreatedAt:         time.Now().UTC(),
+		OrgID:             in.OrgID,
+		DeviceID:          in.DeviceID,
+		CapturedAt:        in.CapturedAt,
 	}
 
 	if err = observability.StageVoid(ctx, "db_save", func(h observability.StageHandle) error {

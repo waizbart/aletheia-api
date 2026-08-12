@@ -9,13 +9,16 @@ go test \
   -coverpkg=github.com/waizbart/aletheia-api/internal/... \
   ./tests/...
 
+# Infrastructure adapters are excluded from the unit-coverage gate: they are
+# exercised by the integration and e2e suites against real Postgres, OpenCV and
+# an EVM node, where a mock would only assert that the mock was called.
 head -1 coverage.out > coverage_filtered.out
 tail -n +2 coverage.out \
-  | grep -v "postgres.go" \
-  | grep -v "s3_blob_store.go" \
+  | grep -v "internal/repository/postgres" \
   | grep -v "internal/feature/" \
   | grep -v "internal/observability/" \
   | grep -v "internal/handler/observability" \
+  | grep -v "factory.go" \
   >> coverage_filtered.out
 
 COVERAGE=$(go tool cover -func=coverage_filtered.out | grep total | awk '{print $3}' | tr -d '%')

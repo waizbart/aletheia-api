@@ -92,7 +92,7 @@ func (l *RateLimiter) Allow(key string) bool {
 	} else {
 		elapsed := now.Sub(b.seen).Seconds()
 		if elapsed > 0 {
-			b.tokens = minFloat(l.burst, b.tokens+elapsed*l.rate)
+			b.tokens = min(l.burst, b.tokens+elapsed*l.rate)
 		}
 		b.seen = now
 	}
@@ -116,13 +116,6 @@ func (l *RateLimiter) sweep(now time.Time) {
 			delete(l.buckets, k)
 		}
 	}
-}
-
-func minFloat(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // RateLimit rejects requests from clients over their budget with 429 and a

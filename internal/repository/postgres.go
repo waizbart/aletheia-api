@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 
@@ -25,9 +26,9 @@ func (r *PostgresCertificateRepo) Save(ctx context.Context, cert *domain.Certifi
 		INSERT INTO certificates (
 			content_hash, phash, orb_descriptors, orb_keypoints, color_grid,
 			ref_width, ref_height, feature_commitment, registrant, tx_hash,
-			block_number, created_at
+			block_number, created_at, org_id, device_id, captured_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING id`
 
 	var phash, orbDesc, orbKp, colorGrid, commitment []byte
@@ -69,6 +70,9 @@ func (r *PostgresCertificateRepo) Save(ctx context.Context, cert *domain.Certifi
 		cert.TxHash,
 		cert.BlockNumber,
 		cert.CreatedAt,
+		nullUUID(cert.OrgID),
+		nullUUID(cert.DeviceID),
+		nullTime(cert.CapturedAt),
 	).Scan(&cert.ID); err != nil {
 		return fmt.Errorf("postgres save: %w", err)
 	}
@@ -104,7 +108,23 @@ func insertPHashBands(ctx context.Context, tx *sql.Tx, certID string, phash [32]
 const certificateColumns = `
 	id, content_hash, phash, orb_descriptors, orb_keypoints, color_grid,
 	ref_width, ref_height, feature_commitment, registrant, tx_hash,
-	block_number, created_at`
+	block_number, created_at, org_id, device_id, captured_at`
+
+// nullUUID maps an empty identifier to SQL NULL so the UUID columns stay
+// well-typed for rows that have no org or device.
+func nullUUID(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+func nullTime(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.UTC()
+}
 
 func scanCertificate(scanner interface {
 	Scan(dest ...any) error
@@ -112,6 +132,8 @@ func scanCertificate(scanner interface {
 	cert := &domain.Certificate{}
 	var phash, orbDesc, orbKp, colorGrid, commitment []byte
 	var refW, refH sql.NullInt32
+	var orgID, deviceID sql.NullString
+	var capturedAt sql.NullTime
 	if err := scanner.Scan(
 		&cert.ID,
 		&cert.ContentHash,
@@ -126,8 +148,17 @@ func scanCertificate(scanner interface {
 		&cert.TxHash,
 		&cert.BlockNumber,
 		&cert.CreatedAt,
+		&orgID,
+		&deviceID,
+		&capturedAt,
 	); err != nil {
 		return nil, err
+	}
+	cert.OrgID = orgID.String
+	cert.DeviceID = deviceID.String
+	if capturedAt.Valid {
+		t := capturedAt.Time.UTC()
+		cert.CapturedAt = &t
 	}
 	if len(phash) == 32 {
 		var arr [32]byte
