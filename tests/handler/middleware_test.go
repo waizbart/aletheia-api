@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -35,7 +36,9 @@ func TestLoggingMiddleware_PassesThrough(t *testing.T) {
 func TestLoggingMiddleware_Logs(t *testing.T) {
 	var buf bytes.Buffer
 	log.SetOutput(&buf)
-	defer log.SetOutput(nil)
+	// Restore stderr rather than nil: a nil writer makes every later log call
+	// in this test binary panic on a nil dereference.
+	defer log.SetOutput(os.Stderr)
 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

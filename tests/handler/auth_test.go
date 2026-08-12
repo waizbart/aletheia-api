@@ -130,8 +130,10 @@ func TestRouteGuards(t *testing.T) {
 			return &usecase.VerifyOutput{Certified: false}, nil
 		}},
 		&mockDeleter{},
+		nil,
+		true,
 	)
-	certs.RegisterRoutes(mux, handler.AdminAuth(token))
+	certs.RegisterRoutes(mux, handler.AdminAuth(token), nil)
 	handler.RegisterObservabilityRoutes(mux, observability.NewCollector(4), nil, handler.AdminAuth(token))
 
 	tests := []struct {

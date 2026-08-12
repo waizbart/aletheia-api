@@ -68,6 +68,28 @@ type AttestationVerifier interface {
 	Verify(ctx context.Context, req domain.AttestationRequest) (*domain.AttestationEvidence, error)
 }
 
+// OrgRepository persists tenants and their API credentials.
+type OrgRepository interface {
+	SaveOrg(ctx context.Context, o *domain.Org) error
+	FindOrgByID(ctx context.Context, id string) (*domain.Org, error)
+	SaveAPIKey(ctx context.Context, k *domain.APIKey) error
+	// FindOrgByAPIKeyHash resolves a presented credential to its owner. Lookup
+	// is by hash so the database never holds a usable credential.
+	FindOrgByAPIKeyHash(ctx context.Context, hash string) (*domain.Org, *domain.APIKey, error)
+	RevokeAPIKey(ctx context.Context, id string, at time.Time) error
+}
+
+// UsageRepository counts billable operations.
+type UsageRepository interface {
+	// Record increments the counter for an org, operation and billing period.
+	Record(ctx context.Context, orgID string, op domain.Operation, at time.Time) error
+	// CountForPeriod returns how many of op the org performed in the billing
+	// period containing at.
+	CountForPeriod(ctx context.Context, orgID string, op domain.Operation, at time.Time) (int, error)
+	// Summary returns every operation's count for the period containing at.
+	Summary(ctx context.Context, orgID string, at time.Time) (map[domain.Operation]int, error)
+}
+
 // CertifyRunner is the certification step an attested capture delegates to once
 // the device and signature have been checked.
 type CertifyRunner interface {

@@ -77,10 +77,10 @@ func setupE2E(t *testing.T) *e2eEnv {
 	certifyUC := usecase.NewCertifyUseCase(certRepo, chain, extractor)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor)
 	deleteUC := usecase.NewDeleteUseCase(certRepo)
-	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC)
+	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC, nil, true)
 
 	mux := http.NewServeMux()
-	certHandler.RegisterRoutes(mux)
+	certHandler.RegisterRoutes(mux, nil, nil)
 	server := httptest.NewServer(mux)
 
 	cleanup := func() {

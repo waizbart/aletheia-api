@@ -16,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 
+	"github.com/waizbart/aletheia-api/internal/attestation"
 	"github.com/waizbart/aletheia-api/internal/config"
 	"github.com/waizbart/aletheia-api/internal/feature"
 	"github.com/waizbart/aletheia-api/internal/handler"
@@ -75,21 +76,55 @@ func main() {
 	collector := observability.NewCollector(ringCap)
 	obsFactory := observability.NewFactory(collector, tracer)
 
+	deviceRepo := repository.NewPostgresDeviceRepo(db)
+	nonceRepo := repository.NewPostgresNonceRepo(db)
+	orgRepo := repository.NewPostgresOrgRepo(db)
+	usageRepo := repository.NewPostgresUsageRepo(db)
+
+	attestations, err := attestation.NewRegistryFromEnv()
+	if err != nil {
+		log.Fatalf("initializing attestation verifiers: %v", err)
+	}
+	log.Printf("attestation enabled for %v", attestations.Platforms())
+
 	certifyUC := usecase.NewCertifyUseCase(certRepo, chainSvc, extractor)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor)
 	deleteUC := usecase.NewDeleteUseCase(certRepo)
 	thumbnailUC := usecase.NewThumbnailUseCase(certRepo, extractor)
 
+	nonceTTL := config.EnvDurationOrDefault("CAPTURE_NONCE_TTL", 5*time.Minute)
+	issueNonceUC := usecase.NewIssueNonceUseCase(nonceRepo, nonceTTL, time.Now)
+	enrollUC := usecase.NewEnrollDeviceUseCase(deviceRepo, nonceRepo, attestations, time.Now)
+	revokeDeviceUC := usecase.NewRevokeDeviceUseCase(deviceRepo, time.Now)
+	captureUC := usecase.NewAttestedCaptureUseCase(deviceRepo, nonceRepo, certifyUC, time.Now)
+
+	usageUC := usecase.NewUsageUseCase(usageRepo, time.Now)
+	createOrgUC := usecase.NewCreateOrgUseCase(orgRepo, time.Now)
+	issueKeyUC := usecase.NewIssueAPIKeyUseCase(orgRepo, time.Now)
+	revokeKeyUC := usecase.NewRevokeAPIKeyUseCase(orgRepo, time.Now)
+	authUC := usecase.NewAuthenticateUseCase(orgRepo)
+
 	adminToken := config.EnvOrDefault("ADMIN_API_TOKEN", "")
 	if adminToken == "" {
-		log.Println("WARNING: ADMIN_API_TOKEN is unset — certificate deletion and the observability dashboard will reject every request")
+		log.Println("WARNING: ADMIN_API_TOKEN is unset — admin routes will reject every request")
 	}
 	admin := handler.AdminAuth(adminToken)
+	tenant := handler.APIKeyAuth(authUC)
+	optionalTenant := handler.OptionalAPIKeyAuth(authUC)
 
-	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC)
+	allowUnattested := config.EnvBoolOrDefault("ALLOW_UNATTESTED_CERTIFY", false)
+	if allowUnattested {
+		log.Println("WARNING: ALLOW_UNATTESTED_CERTIFY is on — POST /certificates accepts uploads with no capture-time provenance")
+	}
+
+	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC, usageUC, allowUnattested)
+	captureHandler := handler.NewCaptureHandler(issueNonceUC, enrollUC, revokeDeviceUC, captureUC, usageUC, usageUC)
+	adminHandler := handler.NewAdminHandler(createOrgUC, issueKeyUC, revokeKeyUC)
 
 	mux := http.NewServeMux()
-	certHandler.RegisterRoutes(mux, admin)
+	certHandler.RegisterRoutes(mux, admin, tenant)
+	captureHandler.RegisterRoutes(mux, tenant)
+	adminHandler.RegisterRoutes(mux, admin)
 	handler.RegisterDocsRoutes(mux)
 	handler.RegisterHealthRoutes(mux)
 	handler.RegisterObservabilityRoutes(mux, collector, thumbnailUC, admin)
@@ -108,7 +143,8 @@ func main() {
 		handler.CORS(corsOrigins)(
 			handler.RateLimit(limiter, trustProxyHeaders)(
 				handler.ConcurrencyLimit(config.EnvIntOrDefault("MAX_CONCURRENT_REQUESTS", 32))(
-					handler.ObservabilityMiddleware(obsFactory)(mux)))))
+					optionalTenant(
+						handler.ObservabilityMiddleware(obsFactory)(mux))))))
 
 	port := config.EnvOrDefault("SERVER_PORT", "8080")
 	srv := &http.Server{
