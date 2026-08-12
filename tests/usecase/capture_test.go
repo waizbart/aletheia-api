@@ -666,3 +666,28 @@ func TestNonceRepoPruneIsWiredThroughTheMock(t *testing.T) {
 		t.Fatalf("DeleteExpired = (%d, %v)", n, err)
 	}
 }
+
+// TestAttestedCaptureUseCase_UnusableDeviceKey covers the case where the stored
+// key cannot be parsed at all, which is a different failure from a signature
+// that simply does not match.
+func TestAttestedCaptureUseCase_UnusableDeviceKey(t *testing.T) {
+	f := newCaptureFixture(t, func(d *mockDeviceRepo, _ *mockNonceRepo) {
+		d.findFn = func(_ context.Context, id string) (*domain.Device, error) {
+			return &domain.Device{
+				ID: id, OrgID: "org-1", Status: domain.DeviceActive,
+				PublicKey: []byte("this is not a public key"),
+			}, nil
+		}
+	})
+
+	_, err := f.uc.Execute(context.Background(), f.input(t))
+	if err == nil {
+		t.Fatal("expected the capture to be rejected")
+	}
+	if errors.Is(err, domain.ErrCaptureSignature) {
+		t.Error("an unparseable key is a device-record problem, not a signature mismatch")
+	}
+	if !strings.Contains(err.Error(), "device public key") {
+		t.Errorf("error %q should name the cause", err)
+	}
+}

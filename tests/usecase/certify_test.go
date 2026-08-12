@@ -18,7 +18,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 	tests := []struct {
 		name      string
 		repo      *mockRepo
-		chain     *mockBlockchain
 		extractor *mockExtractor
 		input     usecase.CertifyInput
 		wantErr   string
@@ -38,11 +37,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 						t.Fatal("expected nil signature for non-image")
 					}
 					return nil
-				},
-			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
-					return "0xabc", 1, nil
 				},
 			},
 			extractor: &mockExtractor{},
@@ -77,17 +71,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 					return nil
 				},
 			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, contentHash, featureCommitment string) (string, uint64, error) {
-					if len(contentHash) != 64 {
-						t.Fatalf("contentHash forwarded to chain has wrong length: %d", len(contentHash))
-					}
-					if len(featureCommitment) != 64 {
-						t.Fatalf("featureCommitment forwarded to chain has wrong length: %d", len(featureCommitment))
-					}
-					return "0xabc", 1, nil
-				},
-			},
 			extractor: &mockExtractor{
 				computeFn: func(_ context.Context, _ []byte) (*domain.FeatureSignature, error) {
 					return signatureWithGrid(), nil
@@ -114,11 +97,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 					return nil
 				},
 			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
-					return "0xabc", 1, nil
-				},
-			},
 			extractor: &mockExtractor{
 				computeFn: func(_ context.Context, _ []byte) (*domain.FeatureSignature, error) {
 					return nil, errors.New("no features")
@@ -136,7 +114,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 					return &domain.Certificate{ContentHash: hash}, nil
 				},
 			},
-			chain:     &mockBlockchain{},
 			extractor: &mockExtractor{},
 			input: usecase.CertifyInput{
 				Content:    strings.NewReader("test content"),
@@ -147,7 +124,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 		{
 			name:      "hash error",
 			repo:      &mockRepo{},
-			chain:     &mockBlockchain{},
 			extractor: &mockExtractor{},
 			input: usecase.CertifyInput{
 				Content:    errReader{},
@@ -162,32 +138,12 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 					return nil, errors.New("db error")
 				},
 			},
-			chain:     &mockBlockchain{},
 			extractor: &mockExtractor{},
 			input: usecase.CertifyInput{
 				Content:    strings.NewReader("test content"),
 				Registrant: "tester",
 			},
 			wantErr: "checking existing",
-		},
-		{
-			name: "blockchain register error",
-			repo: &mockRepo{
-				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
-					return nil, nil
-				},
-			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
-					return "", 0, errors.New("chain error")
-				},
-			},
-			extractor: &mockExtractor{},
-			input: usecase.CertifyInput{
-				Content:    strings.NewReader("test content"),
-				Registrant: "tester",
-			},
-			wantErr: "registering on chain",
 		},
 		{
 			name: "save error",
@@ -197,11 +153,6 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 				},
 				saveFn: func(_ context.Context, _ *domain.Certificate) error {
 					return errors.New("save error")
-				},
-			},
-			chain: &mockBlockchain{
-				registerHashFn: func(_ context.Context, _, _ string) (string, uint64, error) {
-					return "0xabc", 1, nil
 				},
 			},
 			extractor: &mockExtractor{},
@@ -215,7 +166,7 @@ func TestCertifyUseCase_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uc := usecase.NewCertifyUseCase(tt.repo, tt.chain, tt.extractor)
+			uc := usecase.NewCertifyUseCase(tt.repo, tt.extractor)
 			out, err := uc.Execute(context.Background(), tt.input)
 
 			if tt.wantErr != "" {

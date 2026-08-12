@@ -14,13 +14,22 @@ type CertificateRepository interface {
 	Delete(ctx context.Context, contentHash string) error
 }
 
+// BlockchainService commits a batch of certificates to the chain.
 type BlockchainService interface {
-	// RegisterHash anchors the certificate on chain. The contentHash is the
-	// SHA-256 of the original content; featureCommitment is the 32-byte digest
-	// binding the off-chain feature bundle to this certificate (see
-	// domain.FeatureCommitment).
-	RegisterHash(ctx context.Context, contentHash, featureCommitment string) (txHash string, blockNum uint64, err error)
-	IsHashRegistered(ctx context.Context, hash string) (bool, error)
+	// RegisterRoot anchors a Merkle root covering leafCount certificates. It
+	// must not return until the transaction has a receipt, so a recorded block
+	// number is always a real one.
+	RegisterRoot(ctx context.Context, root [32]byte, leafCount uint64) (txHash string, blockNum uint64, err error)
+}
+
+// AnchorRepository drives the batching anchor worker.
+type AnchorRepository interface {
+	// PendingLeaves returns certificates awaiting an anchor, oldest first.
+	PendingLeaves(ctx context.Context, limit int) ([]*domain.Certificate, error)
+	// SaveAnchor records the batch and attaches each certificate's inclusion
+	// proof in one transaction, so a certificate is never left claiming
+	// membership in a batch that was not written.
+	SaveAnchor(ctx context.Context, a *domain.Anchor, leaves []*domain.Certificate) error
 }
 
 type FeatureExtractor interface {

@@ -108,7 +108,8 @@ func insertPHashBands(ctx context.Context, tx *sql.Tx, certID string, phash [32]
 const certificateColumns = `
 	id, content_hash, phash, orb_descriptors, orb_keypoints, color_grid,
 	ref_width, ref_height, feature_commitment, registrant, tx_hash,
-	block_number, created_at, org_id, device_id, captured_at`
+	block_number, created_at, org_id, device_id, captured_at,
+	anchor_id, leaf_index, merkle_proof`
 
 // nullUUID maps an empty identifier to SQL NULL so the UUID columns stay
 // well-typed for rows that have no org or device.
@@ -132,8 +133,10 @@ func scanCertificate(scanner interface {
 	cert := &domain.Certificate{}
 	var phash, orbDesc, orbKp, colorGrid, commitment []byte
 	var refW, refH sql.NullInt32
-	var orgID, deviceID sql.NullString
+	var orgID, deviceID, anchorID sql.NullString
 	var capturedAt sql.NullTime
+	var leafIndex sql.NullInt32
+	var merkleProof pq.ByteaArray
 	if err := scanner.Scan(
 		&cert.ID,
 		&cert.ContentHash,
@@ -151,11 +154,17 @@ func scanCertificate(scanner interface {
 		&orgID,
 		&deviceID,
 		&capturedAt,
+		&anchorID,
+		&leafIndex,
+		&merkleProof,
 	); err != nil {
 		return nil, err
 	}
 	cert.OrgID = orgID.String
 	cert.DeviceID = deviceID.String
+	cert.AnchorID = anchorID.String
+	cert.LeafIndex = int(leafIndex.Int32)
+	cert.MerkleProof = merkleProof
 	if capturedAt.Valid {
 		t := capturedAt.Time.UTC()
 		cert.CapturedAt = &t

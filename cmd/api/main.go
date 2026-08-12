@@ -48,10 +48,12 @@ func main() {
 	defer extractor.Close()
 
 	certRepo := repository.NewPostgresCertificateRepo(db)
-	chainSvc, err := repository.NewBlockchainServiceFromEnv()
+	anchorRepo := repository.NewPostgresAnchorRepo(db)
+	anchorSvc, err := repository.NewAnchorServiceFromEnv()
 	if err != nil {
-		log.Fatalf("initializing blockchain service: %v", err)
+		log.Fatalf("initializing anchor service: %v", err)
 	}
+	log.Printf("anchoring from %s", anchorSvc.From())
 
 	// Observability: OpenTelemetry tracer (no-op unless an OTLP endpoint is set)
 	// plus the in-memory collector that backs the live dashboard.
@@ -87,7 +89,7 @@ func main() {
 	}
 	log.Printf("attestation enabled for %v", attestations.Platforms())
 
-	certifyUC := usecase.NewCertifyUseCase(certRepo, chainSvc, extractor)
+	certifyUC := usecase.NewCertifyUseCase(certRepo, extractor)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor)
 	deleteUC := usecase.NewDeleteUseCase(certRepo)
 	thumbnailUC := usecase.NewThumbnailUseCase(certRepo, extractor)
@@ -97,6 +99,13 @@ func main() {
 	enrollUC := usecase.NewEnrollDeviceUseCase(deviceRepo, nonceRepo, attestations, time.Now)
 	revokeDeviceUC := usecase.NewRevokeDeviceUseCase(deviceRepo, time.Now)
 	captureUC := usecase.NewAttestedCaptureUseCase(deviceRepo, nonceRepo, certifyUC, time.Now)
+
+	anchorUC := usecase.NewAnchorUseCase(
+		anchorRepo, anchorSvc,
+		config.EnvIntOrDefault("ANCHOR_BATCH_SIZE", 4096),
+		time.Now,
+	)
+	go anchorUC.Run(ctx, config.EnvDurationOrDefault("ANCHOR_INTERVAL", time.Hour))
 
 	usageUC := usecase.NewUsageUseCase(usageRepo, time.Now)
 	createOrgUC := usecase.NewCreateOrgUseCase(orgRepo, time.Now)

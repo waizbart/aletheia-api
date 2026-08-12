@@ -37,17 +37,15 @@ type e2eEnv struct {
 	cleanup func()
 }
 
+// fakeChain stands in for the anchor contract: the e2e suite exercises
+// certification and verification, which no longer touch the chain at all.
 type fakeChain struct {
 	calls int
 }
 
-func (f *fakeChain) RegisterHash(_ context.Context, contentHash, _ string) (string, uint64, error) {
+func (f *fakeChain) RegisterRoot(_ context.Context, root [32]byte, _ uint64) (string, uint64, error) {
 	f.calls++
-	return "0xfaketx" + contentHash[:8], 1, nil
-}
-
-func (f *fakeChain) IsHashRegistered(_ context.Context, _ string) (bool, error) {
-	return false, nil
+	return "0xfaketx" + hex.EncodeToString(root[:4]), 1, nil
 }
 
 func setupE2E(t *testing.T) *e2eEnv {
@@ -72,9 +70,8 @@ func setupE2E(t *testing.T) *e2eEnv {
 
 	extractor := feature.NewOpenCVExtractor()
 	certRepo := repository.NewPostgresCertificateRepo(db)
-	chain := &fakeChain{}
 
-	certifyUC := usecase.NewCertifyUseCase(certRepo, chain, extractor)
+	certifyUC := usecase.NewCertifyUseCase(certRepo, extractor)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor)
 	deleteUC := usecase.NewDeleteUseCase(certRepo)
 	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC, nil, true)
