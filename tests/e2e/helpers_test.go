@@ -128,6 +128,16 @@ type certResp struct {
 	TxHash      string `json:"tx_hash"`
 	BlockNumber uint64 `json:"block_number"`
 	CreatedAt   string `json:"created_at"`
+	// Anchor is absent until the worker commits the batch, which is what
+	// distinguishes "certified" from "anchored".
+	Anchor *anchorResp `json:"anchor"`
+}
+
+type anchorResp struct {
+	TxHash      string   `json:"tx_hash"`
+	BlockNumber uint64   `json:"block_number"`
+	LeafIndex   int      `json:"leaf_index"`
+	MerkleProof []string `json:"merkle_proof"`
 }
 
 type verifyResp struct {
