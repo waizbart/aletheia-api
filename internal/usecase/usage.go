@@ -62,7 +62,7 @@ type UsageReport struct {
 type UsageLine struct {
 	Operation domain.Operation
 	Used      int
-	// Limit is 0 when the plan does not cap this operation.
+	// Limit is domain.Unlimited when the plan does not cap this operation.
 	Limit int
 }
 

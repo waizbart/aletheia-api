@@ -57,9 +57,30 @@ func (r *PostgresDeviceRepo) Save(ctx context.Context, d *domain.Device) error {
 	if err := r.db.QueryRowContext(ctx, q,
 		d.OrgID, d.Platform, d.PublicKey, d.AttestationLevel, d.Model, d.Status, d.CreatedAt,
 	).Scan(&d.ID); err != nil {
+		// The use case checks for an existing enrolment first, but two
+		// concurrent enrolments of the same key would both pass that check.
+		// The unique index is what actually enforces one key per device; this
+		// translates it back into the domain error.
+		if isUniqueViolation(err, "devices_public_key_key") {
+			return domain.ErrDeviceKeyInUse
+		}
 		return fmt.Errorf("postgres save device: %w", err)
 	}
 	return nil
+}
+
+// FindByPublicKey looks a device up by its attested key.
+func (r *PostgresDeviceRepo) FindByPublicKey(ctx context.Context, publicKey []byte) (*domain.Device, error) {
+	q := `SELECT ` + deviceColumns + ` FROM devices WHERE public_key = $1`
+
+	d, err := scanDevice(r.db.QueryRowContext(ctx, q, publicKey))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("postgres find device by key: %w", err)
+	}
+	return d, nil
 }
 
 func (r *PostgresDeviceRepo) FindByID(ctx context.Context, id string) (*domain.Device, error) {

@@ -36,6 +36,23 @@ func TestQuotaFor(t *testing.T) {
 	if got := domain.QuotaFor("enterprise-plus", domain.OpAttestedCapture); got != 500 {
 		t.Errorf("unknown plan allowance = %d, want the developer allowance", got)
 	}
+
+	// An operation missing from the table must not be uncapped either. Adding a
+	// metered operation and forgetting to price it should block it loudly, not
+	// serve it for free — which is what a plain map index would have done,
+	// since a miss yields zero.
+	if got := domain.QuotaFor(domain.PlanEnterprise, "thumbnail"); got != 0 {
+		t.Errorf("unpriced operation allowance = %d, want 0", got)
+	}
+	if got := domain.QuotaFor("enterprise-plus", "thumbnail"); got != 0 {
+		t.Errorf("unpriced operation on an unknown plan = %d, want 0", got)
+	}
+
+	// Unlimited has to be distinguishable from "no allowance", so it cannot be
+	// the zero value.
+	if domain.Unlimited == 0 {
+		t.Error("Unlimited must not be the zero value, or a map miss reads as uncapped")
+	}
 }
 
 func TestBillingPeriod(t *testing.T) {

@@ -759,7 +759,16 @@ components:
       type: string
       pattern: "^0x[0-9a-fA-F]{64}$"
       description: Hash de transação EVM (32 bytes hex com prefixo `0x`).
-      example: "0x9fce0c2b9b0d2d8f3a1e5e7d4c5b3a8f7e6d4c3b2a1908f7e6d5c4b3a2918e7"
+      example: "0x9fce0c2b9b0d2d8f3a1e5e7d4c5b3a8f7e6d4c3b2a1908f7e6d5c4b3a2918e7c"
+
+    PendingEvmTxHash:
+      type: string
+      pattern: "^$|^0x[0-9a-fA-F]{64}$"
+      description: |
+        Hash de transação EVM, ou string vazia enquanto o certificado
+        aguarda o próximo lote de ancoragem. Certificar não toca a
+        blockchain, então todo certificado recém-criado começa aqui.
+      example: "0x9fce0c2b9b0d2d8f3a1e5e7d4c5b3a8f7e6d4c3b2a1908f7e6d5c4b3a2918e7c"
 
     UploadRequest:
       type: object
@@ -820,10 +829,12 @@ components:
           example: "2026-08-12T15:04:05.123456789Z"
         tx_hash:
           allOf:
-            - $ref: "#/components/schemas/EvmTxHash"
+            - $ref: "#/components/schemas/PendingEvmTxHash"
           description: |
             Transação que ancorou o lote deste certificado. Vazia
-            enquanto o certificado aguarda o próximo lote.
+            enquanto o certificado aguarda o próximo lote — use o
+            objeto `anchor`, que só aparece quando a ancoragem
+            confirmou, para saber se há prova de inclusão.
         block_number:
           type: integer
           format: int64

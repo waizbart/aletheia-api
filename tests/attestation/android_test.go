@@ -2,6 +2,10 @@ package attestation_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"errors"
 	"strings"
@@ -20,7 +24,6 @@ func newVerifier(t *testing.T, roots *x509.CertPool, mutate func(*attestation.An
 		AllowedPackages:         []string{testPackage},
 		AllowedSignatureDigests: [][]byte{testSignatureDigest},
 		MinLevel:                domain.AttestationTEE,
-		RequireVerifiedBoot:     true,
 	}
 	if mutate != nil {
 		mutate(&cfg)
@@ -237,7 +240,7 @@ func TestAndroidVerifier_VerifiedBootOptional(t *testing.T) {
 	fx := buildChain(t, kd, false)
 
 	v := newVerifier(t, fx.rootPool, func(c *attestation.AndroidConfig) {
-		c.RequireVerifiedBoot = false
+		c.AllowUnverifiedBoot = true
 	})
 
 	got, err := v.Verify(context.Background(), domain.AttestationRequest{
@@ -313,7 +316,6 @@ func TestNewAndroidVerifier_DefaultsToTEE(t *testing.T) {
 		Roots:                   fx.rootPool,
 		AllowedPackages:         []string{testPackage},
 		AllowedSignatureDigests: [][]byte{testSignatureDigest},
-		RequireVerifiedBoot:     true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -326,7 +328,6 @@ func TestNewAndroidVerifier_DefaultsToTEE(t *testing.T) {
 		Roots:                   soft.rootPool,
 		AllowedPackages:         []string{testPackage},
 		AllowedSignatureDigests: [][]byte{testSignatureDigest},
-		RequireVerifiedBoot:     true,
 	})
 	if _, err := softVerifier.Verify(context.Background(), domain.AttestationRequest{
 		Challenge: testChallenge,
@@ -369,5 +370,83 @@ func TestRegistry_DispatchAndUnsupported(t *testing.T) {
 
 	if got := reg.Platforms(); len(got) != 1 || got[0] != domain.PlatformAndroid {
 		t.Errorf("Platforms() = %v, want [android]", got)
+	}
+}
+
+// --- attested key type -------------------------------------------------------
+//
+// Android Keystore will attest an RSA key just as happily as an EC one, but a
+// capture signature only ever verifies against ECDSA P-256. Enrolling a key the
+// capture path cannot use produces the worst possible failure: a successful
+// enrolment followed by a capture route that is broken forever, with nothing in
+// the enrolment response hinting at why.
+
+func TestAndroidVerifier_RejectsNonECDSAKey(t *testing.T) {
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx := buildChainWithLeafKey(t, validKeyDesc(testChallenge), false, &rsaKey.PublicKey)
+	v := newVerifier(t, fx.rootPool, nil)
+
+	_, err = v.Verify(context.Background(), domain.AttestationRequest{
+		Challenge: testChallenge,
+		CertChain: fx.chain,
+	})
+	if err == nil {
+		t.Fatal("an RSA key must not enrol")
+	}
+	var rejected *attestation.ErrRejected
+	if !errors.As(err, &rejected) {
+		t.Errorf("error = %v, want a policy rejection the handler maps to 403", err)
+	}
+	if !strings.Contains(err.Error(), "ECDSA") {
+		t.Errorf("the rejection should name the expected key type, got %v", err)
+	}
+}
+
+func TestAndroidVerifier_RejectsWrongCurve(t *testing.T) {
+	p384, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx := buildChainWithLeafKey(t, validKeyDesc(testChallenge), false, &p384.PublicKey)
+	v := newVerifier(t, fx.rootPool, nil)
+
+	_, err = v.Verify(context.Background(), domain.AttestationRequest{
+		Challenge: testChallenge,
+		CertChain: fx.chain,
+	})
+	if err == nil {
+		t.Fatal("a P-384 key must not enrol")
+	}
+	if !strings.Contains(err.Error(), "P-256") {
+		t.Errorf("the rejection should name the expected curve, got %v", err)
+	}
+}
+
+// The zero value of AndroidConfig must enforce verified boot. A caller who
+// simply forgets the field has to get the strict policy, not the lax one.
+func TestNewAndroidVerifier_EnforcesVerifiedBootByDefault(t *testing.T) {
+	kd := validKeyDesc(testChallenge)
+	kd.deviceLocked = false
+	kd.bootState = 2
+	fx := buildChain(t, kd, false)
+
+	v, err := attestation.NewAndroidVerifier(attestation.AndroidConfig{
+		Roots:                   fx.rootPool,
+		AllowedPackages:         []string{testPackage},
+		AllowedSignatureDigests: [][]byte{testSignatureDigest},
+		// AllowUnverifiedBoot deliberately left unset.
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := v.Verify(context.Background(), domain.AttestationRequest{
+		Challenge: testChallenge,
+		CertChain: fx.chain,
+	}); err == nil {
+		t.Error("an unlocked bootloader must be rejected when the flag is unset")
 	}
 }

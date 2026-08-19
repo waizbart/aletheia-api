@@ -1,6 +1,7 @@
 package attestation_test
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -207,6 +208,14 @@ type chainFixture struct {
 // extension. omitExtension produces a leaf with no attestation at all.
 func buildChain(t *testing.T, kd keyDescOptions, omitExtension bool) chainFixture {
 	t.Helper()
+	return buildChainWithLeafKey(t, kd, omitExtension, nil)
+}
+
+// buildChainWithLeafKey is buildChain with control over the attested key type,
+// so a chain carrying a key no capture signature could verify against can be
+// exercised. A nil leafPub means the usual ECDSA P-256 key.
+func buildChainWithLeafKey(t *testing.T, kd keyDescOptions, omitExtension bool, leafPub crypto.PublicKey) chainFixture {
+	t.Helper()
 
 	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -234,6 +243,10 @@ func buildChain(t *testing.T, kd keyDescOptions, omitExtension bool) chainFixtur
 	if err != nil {
 		t.Fatal(err)
 	}
+	certifiedPub := crypto.PublicKey(&leafKey.PublicKey)
+	if leafPub != nil {
+		certifiedPub = leafPub
+	}
 	leafTmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(2),
 		Subject:      pkix.Name{CommonName: "Attested Key"},
@@ -247,7 +260,7 @@ func buildChain(t *testing.T, kd keyDescOptions, omitExtension bool) chainFixtur
 			Value: buildKeyDescription(kd),
 		}}
 	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, rootCert, &leafKey.PublicKey, rootKey)
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, rootCert, certifiedPub, rootKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +268,7 @@ func buildChain(t *testing.T, kd keyDescOptions, omitExtension bool) chainFixtur
 	pool := x509.NewCertPool()
 	pool.AddCert(rootCert)
 
-	pub, err := x509.MarshalPKIXPublicKey(&leafKey.PublicKey)
+	pub, err := x509.MarshalPKIXPublicKey(certifiedPub)
 	if err != nil {
 		t.Fatal(err)
 	}

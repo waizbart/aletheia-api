@@ -3,6 +3,8 @@ package attestation
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/x509"
 	"encoding/asn1"
 	"fmt"
@@ -72,9 +74,14 @@ type AndroidConfig struct {
 	AllowedSignatureDigests [][]byte
 	// MinLevel is the weakest acceptable key location. Defaults to TEE.
 	MinLevel domain.AttestationLevel
-	// RequireVerifiedBoot rejects unlocked or tampered bootloaders. Defaults to
-	// true; disable only for lab devices on an isolated registry.
-	RequireVerifiedBoot bool
+	// AllowUnverifiedBoot accepts unlocked or tampered bootloaders, and
+	// attestations carrying no root of trust at all.
+	//
+	// The flag is phrased as an opt-out so that the zero value enforces. A
+	// caller who forgets to set a RequireVerifiedBoot field would silently get
+	// the weaker policy, which is the wrong direction for a security gate to
+	// fail. Set it only for lab devices on an isolated registry.
+	AllowUnverifiedBoot bool
 	// Now is injectable for tests and for verifying historical chains.
 	Now func() time.Time
 }
@@ -153,9 +160,9 @@ func (v *AndroidVerifier) Verify(_ context.Context, req domain.AttestationReques
 		return nil, err
 	}
 
-	publicKeyDER, err := x509.MarshalPKIXPublicKey(leaf.PublicKey)
+	publicKeyDER, err := encodeCaptureKey(leaf.PublicKey)
 	if err != nil {
-		return nil, fmt.Errorf("android attestation: encoding attested key: %w", err)
+		return nil, err
 	}
 
 	return &domain.AttestationEvidence{
@@ -165,6 +172,28 @@ func (v *AndroidVerifier) Verify(_ context.Context, req domain.AttestationReques
 		VerifiedBootState: bootState,
 		SecurityLevel:     securityLevelNames[kd.keySecurityLevel],
 	}, nil
+}
+
+// encodeCaptureKey rejects any attested key a capture signature could not be
+// verified against, then encodes it.
+//
+// Android Keystore will happily attest an RSA key. Accepting one here would
+// enrol the device successfully and then fail every single capture, which is a
+// far worse failure than refusing the enrolment outright: the integrator would
+// see a working enrolment and an inexplicably broken capture path.
+func encodeCaptureKey(pub any) ([]byte, error) {
+	ecPub, ok := pub.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, reject("attested key is %T, want an ECDSA P-256 key", pub)
+	}
+	if ecPub.Curve != elliptic.P256() {
+		return nil, reject("attested key uses curve %s, want P-256", ecPub.Curve.Params().Name)
+	}
+	der, err := x509.MarshalPKIXPublicKey(ecPub)
+	if err != nil {
+		return nil, fmt.Errorf("android attestation: encoding attested key: %w", err)
+	}
+	return der, nil
 }
 
 // parseChain decodes the DER chain, leaf first.
@@ -326,7 +355,7 @@ func checkOrigin(kd *keyDescription) error {
 func (v *AndroidVerifier) checkRootOfTrust(kd *keyDescription) (string, error) {
 	rot, ok := contextTag(kd.teeEnforced, tagRootOfTrust)
 	if !ok {
-		if v.cfg.RequireVerifiedBoot {
+		if !v.cfg.AllowUnverifiedBoot {
 			return "", reject("attestation carries no root of trust")
 		}
 		return "unknown", nil
@@ -358,7 +387,7 @@ func (v *AndroidVerifier) checkRootOfTrust(kd *keyDescription) (string, error) {
 		name = fmt.Sprintf("unknown(%d)", state)
 	}
 
-	if v.cfg.RequireVerifiedBoot {
+	if !v.cfg.AllowUnverifiedBoot {
 		if !locked {
 			return "", reject("device bootloader is unlocked")
 		}

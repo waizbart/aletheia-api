@@ -28,13 +28,13 @@ type CreateOrgInput struct {
 
 func (uc *CreateOrgUseCase) Execute(ctx context.Context, in CreateOrgInput) (*domain.Org, error) {
 	if in.Name == "" {
-		return nil, fmt.Errorf("create org: name is required")
+		return nil, fmt.Errorf("create org: %w: name is required", domain.ErrInvalidInput)
 	}
 	if in.Plan == "" {
 		in.Plan = domain.PlanDeveloper
 	}
 	if !domain.ValidPlan(in.Plan) {
-		return nil, fmt.Errorf("create org: unknown plan %q", in.Plan)
+		return nil, fmt.Errorf("create org: %w: unknown plan %q", domain.ErrInvalidInput, in.Plan)
 	}
 
 	org := &domain.Org{

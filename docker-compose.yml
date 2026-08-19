@@ -57,13 +57,20 @@ services:
       CHAIN_ID: "31337"
       ANCHOR_INTERVAL: 1m
 
-      # Attested capture. The roots bundle and signing digests below are the
-      # local development placeholders; production needs the real Google
-      # hardware attestation roots and your own APK signing digest.
-      ANDROID_ATTESTATION_ROOTS: /config/android-attestation-roots.pem
-      ANDROID_ALLOWED_PACKAGES: com.aletheia.camera
-      ANDROID_SIGNATURE_DIGESTS: "0000000000000000000000000000000000000000000000000000000000000000"
-      ANDROID_REQUIRE_VERIFIED_BOOT: "true"
+      # Attested capture is intentionally left unconfigured.
+      #
+      # The Google hardware attestation roots are not in the repository — they
+      # rotate, and a stale committed bundle is worse than none. With all three
+      # variables unset the API starts and verifies normally, and device
+      # enrolment answers 501 unsupported, which is the truth.
+      #
+      # To exercise enrolment locally, drop the roots bundle at
+      # config/android-attestation-roots.pem (see config/README.md) and
+      # uncomment all three:
+      #
+      # ANDROID_ATTESTATION_ROOTS: /config/android-attestation-roots.pem
+      # ANDROID_ALLOWED_PACKAGES: com.aletheia.camera
+      # ANDROID_SIGNATURE_DIGESTS: "<sha256 of your APK signing certificate>"
 
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4318
       OTEL_SERVICE_NAME: aletheia-api

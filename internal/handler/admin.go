@@ -69,8 +69,15 @@ func (h *AdminHandler) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		Name: req.Name,
 		Plan: domain.Plan(req.Plan),
 	})
-	if err != nil {
+	// Only a caller-fixable error is a 400. A repository failure is this
+	// server's problem, and reporting it as a bad request both misleads the
+	// operator and echoes the driver's message back over the wire.
+	if errors.Is(err, domain.ErrInvalidInput) {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create the organisation")
 		return
 	}
 

@@ -20,6 +20,9 @@ type mockAnchorRepo struct {
 	savedAnchor *domain.Anchor
 	savedLeaves []*domain.Certificate
 	sawLimit    int
+
+	unconfirmedFn func(ctx context.Context, a *domain.Anchor) error
+	unconfirmed   []*domain.Anchor
 }
 
 func (m *mockAnchorRepo) PendingLeaves(ctx context.Context, limit int) ([]*domain.Certificate, error) {
@@ -39,10 +42,22 @@ func (m *mockAnchorRepo) SaveAnchor(ctx context.Context, a *domain.Anchor, leave
 	return nil
 }
 
+func (m *mockAnchorRepo) SaveUnconfirmedAnchor(ctx context.Context, a *domain.Anchor) error {
+	m.unconfirmed = append(m.unconfirmed, a)
+	if m.unconfirmedFn != nil {
+		return m.unconfirmedFn(ctx, a)
+	}
+	a.ID = "anchor-unconfirmed"
+	return nil
+}
+
 type mockAnchorChain struct {
 	root      [32]byte
 	leafCount uint64
 	err       error
+	// errTxHash is what a broadcast-but-unconfirmed transaction reports
+	// alongside its error.
+	errTxHash string
 	calls     int
 }
 
@@ -50,7 +65,7 @@ func (m *mockAnchorChain) RegisterRoot(_ context.Context, root [32]byte, leafCou
 	m.calls++
 	m.root, m.leafCount = root, leafCount
 	if m.err != nil {
-		return "", 0, m.err
+		return m.errTxHash, 0, m.err
 	}
 	return "0xtx", 42, nil
 }
@@ -154,6 +169,79 @@ func TestAnchorUseCase_LeavesBatchPendingOnChainFailure(t *testing.T) {
 	}
 	if repo.savedAnchor != nil {
 		t.Fatal("no anchor may be recorded when the transaction did not confirm")
+	}
+	if len(repo.unconfirmed) != 0 {
+		t.Fatal("nothing was broadcast, so there is no transaction to reconcile")
+	}
+}
+
+// TestAnchorUseCase_RecordsBroadcastButUnconfirmedTransaction: when the
+// transaction went out but the receipt never came, the hash is the only handle
+// an operator has on a root that may still be mined. The batch still stays
+// pending — the record exists for reconciliation, not to claim inclusion.
+func TestAnchorUseCase_RecordsBroadcastButUnconfirmedTransaction(t *testing.T) {
+	repo := &mockAnchorRepo{pending: pendingCerts(3)}
+	chain := &mockAnchorChain{err: errors.New("receipt timeout"), errTxHash: "0xdeadbeef"}
+	uc := usecase.NewAnchorUseCase(repo, chain, 10, fixedClock())
+
+	if _, err := uc.RunOnce(context.Background()); err == nil {
+		t.Fatal("expected the chain failure to surface")
+	}
+
+	if len(repo.unconfirmed) != 1 {
+		t.Fatalf("unconfirmed records = %d, want 1", len(repo.unconfirmed))
+	}
+	rec := repo.unconfirmed[0]
+	if rec.TxHash != "0xdeadbeef" {
+		t.Errorf("tx hash = %q, want the broadcast hash", rec.TxHash)
+	}
+	if rec.Status != domain.AnchorPending {
+		t.Errorf("status = %q, want %q", rec.Status, domain.AnchorPending)
+	}
+	if rec.LeafCount != 3 {
+		t.Errorf("leaf count = %d, want 3", rec.LeafCount)
+	}
+	if rec.BlockNumber != 0 {
+		t.Errorf("block number = %d, want 0 — no receipt was seen", rec.BlockNumber)
+	}
+	if repo.savedAnchor != nil {
+		t.Fatal("certificates must stay pending: the root may never land")
+	}
+}
+
+// The bookkeeping is best effort. Failing it must not change the outcome of the
+// pass, which was already going to leave the batch pending.
+func TestAnchorUseCase_UnconfirmedRecordFailureIsNotFatal(t *testing.T) {
+	repo := &mockAnchorRepo{
+		pending: pendingCerts(2),
+		unconfirmedFn: func(context.Context, *domain.Anchor) error {
+			return errors.New("db down")
+		},
+	}
+	chain := &mockAnchorChain{err: errors.New("receipt timeout"), errTxHash: "0xabc"}
+	uc := usecase.NewAnchorUseCase(repo, chain, 10, fixedClock())
+
+	_, err := uc.RunOnce(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "registering root") {
+		t.Fatalf("error = %v, want the original chain failure to survive", err)
+	}
+}
+
+// A cancelled context is the usual reason the receipt wait failed, so the
+// bookkeeping write must not inherit that cancellation.
+func TestAnchorUseCase_RecordsUnconfirmedEvenWhenContextIsCancelled(t *testing.T) {
+	repo := &mockAnchorRepo{pending: pendingCerts(1)}
+	chain := &mockAnchorChain{err: context.Canceled, errTxHash: "0xfeed"}
+	uc := usecase.NewAnchorUseCase(repo, chain, 10, fixedClock())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := uc.RunOnce(ctx); err == nil {
+		t.Fatal("expected the chain failure to surface")
+	}
+	if len(repo.unconfirmed) != 1 {
+		t.Fatalf("unconfirmed records = %d, want 1 despite the cancelled context", len(repo.unconfirmed))
 	}
 }
 

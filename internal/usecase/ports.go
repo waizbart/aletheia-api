@@ -19,6 +19,11 @@ type BlockchainService interface {
 	// RegisterRoot anchors a Merkle root covering leafCount certificates. It
 	// must not return until the transaction has a receipt, so a recorded block
 	// number is always a real one.
+	//
+	// An implementation that broadcast a transaction but could not confirm it
+	// must return the transaction hash alongside the error. That transaction
+	// may still be mined, and the hash is the only handle an operator has on
+	// it; discarding it leaves an unaccounted-for root on chain.
 	RegisterRoot(ctx context.Context, root [32]byte, leafCount uint64) (txHash string, blockNum uint64, err error)
 }
 
@@ -30,6 +35,11 @@ type AnchorRepository interface {
 	// proof in one transaction, so a certificate is never left claiming
 	// membership in a batch that was not written.
 	SaveAnchor(ctx context.Context, a *domain.Anchor, leaves []*domain.Certificate) error
+	// SaveUnconfirmedAnchor records a broadcast transaction that could not be
+	// confirmed, with no certificates attached. It exists so an operator can
+	// reconcile a root that may yet be mined, rather than discovering it on
+	// chain with nothing in the database referring to it.
+	SaveUnconfirmedAnchor(ctx context.Context, a *domain.Anchor) error
 }
 
 type FeatureExtractor interface {
@@ -54,6 +64,9 @@ type ColorGridRenderer interface {
 type DeviceRepository interface {
 	Save(ctx context.Context, d *domain.Device) error
 	FindByID(ctx context.Context, id string) (*domain.Device, error)
+	// FindByPublicKey looks a device up by its attested key, which is the
+	// device's real identity. Returns (nil, nil) when the key is unknown.
+	FindByPublicKey(ctx context.Context, publicKey []byte) (*domain.Device, error)
 	ListByOrg(ctx context.Context, orgID string) ([]*domain.Device, error)
 	// Revoke flags the device unusable for new captures. Certificates it
 	// already produced are left untouched.

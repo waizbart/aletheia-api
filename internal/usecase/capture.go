@@ -95,6 +95,26 @@ func (uc *EnrollDeviceUseCase) Execute(ctx context.Context, in EnrollDeviceInput
 		return nil, fmt.Errorf("enroll: %w", err)
 	}
 
+	// The attested key, not the row id, is the device's identity. Without this
+	// check a revoked device would simply enrol again and get a fresh active
+	// record, so revocation would only ever apply to a row the device could
+	// replace at will.
+	if existing, err := uc.devices.FindByPublicKey(ctx, evidence.PublicKeyDER); err != nil {
+		return nil, fmt.Errorf("enroll: looking up attested key: %w", err)
+	} else if existing != nil {
+		switch {
+		case existing.Status == domain.DeviceRevoked:
+			return nil, fmt.Errorf("enroll: %w", domain.ErrDeviceRevoked)
+		case existing.OrgID != in.OrgID:
+			return nil, fmt.Errorf("enroll: %w", domain.ErrDeviceKeyInUse)
+		default:
+			// Same org, same key, still active: the SDK re-ran enrolment after
+			// losing its device id. Handing back the existing record is the
+			// honest answer and keeps enrolment idempotent.
+			return existing, nil
+		}
+	}
+
 	device := &domain.Device{
 		OrgID:            in.OrgID,
 		Platform:         in.Platform,

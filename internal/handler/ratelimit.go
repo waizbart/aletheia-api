@@ -120,10 +120,10 @@ func (l *RateLimiter) sweep(now time.Time) {
 
 // RateLimit rejects requests from clients over their budget with 429 and a
 // Retry-After hint.
-func RateLimit(l *RateLimiter, trustProxyHeaders bool) func(http.Handler) http.Handler {
+func RateLimit(l *RateLimiter, trustedProxyHops int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !l.Allow(ClientIP(r, trustProxyHeaders)) {
+			if !l.Allow(ClientIP(r, trustedProxyHops)) {
 				w.Header().Set("Retry-After", "1")
 				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return
@@ -159,19 +159,27 @@ func ConcurrencyLimit(max int) func(http.Handler) http.Handler {
 	}
 }
 
-// ClientIP resolves the caller's address. X-Forwarded-For is honoured only when
-// the deployment sits behind a trusted proxy — otherwise any client could spoof
-// the header and sidestep rate limiting entirely.
-func ClientIP(r *http.Request, trustProxyHeaders bool) string {
-	if trustProxyHeaders {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			first, _, _ := strings.Cut(xff, ",")
-			if first = strings.TrimSpace(first); first != "" {
-				return first
-			}
-		}
-		if realIP := strings.TrimSpace(r.Header.Get("X-Real-Ip")); realIP != "" {
-			return realIP
+// ClientIP resolves the caller's address, counting back trustedProxyHops
+// entries from the right of X-Forwarded-For.
+//
+// Reading the leftmost entry — the obvious implementation — is wrong even
+// behind a proxy you control, because proxies *append*: a client that sends
+// its own X-Forwarded-For puts an attacker-chosen value in front of the real
+// one. A fresh value per request then means a fresh rate-limit bucket per
+// request, which both defeats the limiter and grows the bucket map until the
+// idle sweep runs.
+//
+// Only the entries a trusted proxy appended are trustworthy, so the client is
+// the one trustedProxyHops from the end. With hops <= 0 the header is ignored
+// entirely and the transport address wins.
+//
+// X-Real-Ip is deliberately not consulted: it carries no chain, so there is no
+// way to tell a value a proxy set from one a client sent, and a proxy that
+// forwards rather than overwrites it hands the caller a free spoof.
+func ClientIP(r *http.Request, trustedProxyHops int) string {
+	if trustedProxyHops > 0 {
+		if ip, ok := forwardedFor(r.Header.Get("X-Forwarded-For"), trustedProxyHops); ok {
+			return ip
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -179,4 +187,27 @@ func ClientIP(r *http.Request, trustProxyHeaders bool) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// forwardedFor picks the entry hops from the right of an X-Forwarded-For
+// chain, reporting false when the chain is too short to contain it or the
+// value is not an IP address.
+//
+// A chain shorter than the configured hop count means the request did not
+// arrive through the expected proxies, so nothing in it can be trusted; the
+// parse check stops a garbage value from becoming its own rate-limit bucket.
+func forwardedFor(header string, hops int) (string, bool) {
+	if header == "" {
+		return "", false
+	}
+	parts := strings.Split(header, ",")
+	idx := len(parts) - hops
+	if idx < 0 {
+		return "", false
+	}
+	candidate := strings.TrimSpace(parts[idx])
+	if net.ParseIP(candidate) == nil {
+		return "", false
+	}
+	return candidate, true
 }

@@ -285,6 +285,8 @@ func writeCaptureError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "capture challenge is unknown, expired or already used")
 	case errors.Is(err, domain.ErrDeviceRevoked):
 		writeError(w, http.StatusForbidden, "device is revoked")
+	case errors.Is(err, domain.ErrDeviceKeyInUse):
+		writeError(w, http.StatusConflict, "attested key is already enrolled by another organisation")
 	case errors.Is(err, domain.ErrDeviceNotFound):
 		writeError(w, http.StatusNotFound, "device not enrolled")
 	case errors.Is(err, domain.ErrAlreadyCertified):

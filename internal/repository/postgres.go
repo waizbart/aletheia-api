@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -125,6 +126,20 @@ func nullTime(t *time.Time) any {
 		return nil
 	}
 	return t.UTC()
+}
+
+// isUniqueViolation reports whether err is Postgres error 23505 raised by the
+// named constraint.
+//
+// The constraint name is checked rather than just the error code so that a
+// future index on the same table cannot be quietly reinterpreted as the one
+// the caller meant to handle.
+func isUniqueViolation(err error, constraint string) bool {
+	var pgErr *pq.Error
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == "23505" && pgErr.Constraint == constraint
 }
 
 func scanCertificate(scanner interface {

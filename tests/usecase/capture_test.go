@@ -25,20 +25,30 @@ func fixedClock() func() time.Time { return func() time.Time { return captureNow
 type mockDeviceRepo struct {
 	saveFn     func(ctx context.Context, d *domain.Device) error
 	findFn     func(ctx context.Context, id string) (*domain.Device, error)
+	findKeyFn  func(ctx context.Context, publicKey []byte) (*domain.Device, error)
 	listFn     func(ctx context.Context, orgID string) ([]*domain.Device, error)
 	revokeFn   func(ctx context.Context, id, reason string, at time.Time) error
 	revokeCall struct {
 		id     string
 		reason string
 	}
+	saved []*domain.Device
 }
 
 func (m *mockDeviceRepo) Save(ctx context.Context, d *domain.Device) error {
+	m.saved = append(m.saved, d)
 	if m.saveFn == nil {
 		d.ID = "device-1"
 		return nil
 	}
 	return m.saveFn(ctx, d)
+}
+
+func (m *mockDeviceRepo) FindByPublicKey(ctx context.Context, publicKey []byte) (*domain.Device, error) {
+	if m.findKeyFn == nil {
+		return nil, nil
+	}
+	return m.findKeyFn(ctx, publicKey)
 }
 
 func (m *mockDeviceRepo) FindByID(ctx context.Context, id string) (*domain.Device, error) {
@@ -689,5 +699,107 @@ func TestAttestedCaptureUseCase_UnusableDeviceKey(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "device public key") {
 		t.Errorf("error %q should name the cause", err)
+	}
+}
+
+// --- one hardware key, one device record -------------------------------------
+//
+// A device's identity is its attested key, not the row it happens to occupy.
+// Without that binding, revocation only ever applied to a record the device
+// could replace by enrolling again.
+
+func enrolFixture(t *testing.T, devices *mockDeviceRepo, key string) (*usecase.EnrollDeviceUseCase, usecase.EnrollDeviceInput) {
+	t.Helper()
+	nonce := validNonce(t, "org-1")
+	nonces := &mockNonceRepo{consumeFn: func(_ context.Context, _ string, _ time.Time) (*domain.CaptureNonce, error) {
+		return &nonce, nil
+	}}
+	verifier := &mockAttestationVerifier{fn: func(_ context.Context, _ domain.AttestationRequest) (*domain.AttestationEvidence, error) {
+		return &domain.AttestationEvidence{PublicKeyDER: []byte(key), Level: domain.AttestationTEE}, nil
+	}}
+
+	uc := usecase.NewEnrollDeviceUseCase(devices, nonces, verifier, fixedClock())
+	in := usecase.EnrollDeviceInput{
+		OrgID:     "org-1",
+		Platform:  domain.PlatformAndroid,
+		Nonce:     nonce.Value,
+		CertChain: [][]byte{{1, 2, 3}},
+	}
+	return uc, in
+}
+
+func TestEnrollDeviceUseCase_RevokedKeyCannotEnrolAgain(t *testing.T) {
+	devices := &mockDeviceRepo{
+		findKeyFn: func(_ context.Context, key []byte) (*domain.Device, error) {
+			return &domain.Device{
+				ID:     "device-old",
+				OrgID:  "org-1",
+				Status: domain.DeviceRevoked,
+			}, nil
+		},
+	}
+	uc, in := enrolFixture(t, devices, "hardware-key")
+
+	_, err := uc.Execute(context.Background(), in)
+	if !errors.Is(err, domain.ErrDeviceRevoked) {
+		t.Fatalf("error = %v, want ErrDeviceRevoked", err)
+	}
+	if len(devices.saved) != 0 {
+		t.Fatal("a revoked key must not get a fresh active record")
+	}
+}
+
+func TestEnrollDeviceUseCase_KeyEnrolledByAnotherOrgIsRefused(t *testing.T) {
+	devices := &mockDeviceRepo{
+		findKeyFn: func(_ context.Context, key []byte) (*domain.Device, error) {
+			return &domain.Device{ID: "device-other", OrgID: "org-2", Status: domain.DeviceActive}, nil
+		},
+	}
+	uc, in := enrolFixture(t, devices, "hardware-key")
+
+	_, err := uc.Execute(context.Background(), in)
+	if !errors.Is(err, domain.ErrDeviceKeyInUse) {
+		t.Fatalf("error = %v, want ErrDeviceKeyInUse", err)
+	}
+	if len(devices.saved) != 0 {
+		t.Fatal("a key belonging to another tenant must not be re-bound")
+	}
+}
+
+// Re-enrolling a key the same org already has is not an attack — it is an SDK
+// that lost its device id. It gets the existing record back, not a duplicate.
+func TestEnrollDeviceUseCase_ReenrolmentIsIdempotent(t *testing.T) {
+	existing := &domain.Device{ID: "device-1", OrgID: "org-1", Status: domain.DeviceActive}
+	devices := &mockDeviceRepo{
+		findKeyFn: func(_ context.Context, key []byte) (*domain.Device, error) { return existing, nil },
+	}
+	uc, in := enrolFixture(t, devices, "hardware-key")
+
+	got, err := uc.Execute(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got.ID != existing.ID {
+		t.Errorf("device id = %q, want the existing %q", got.ID, existing.ID)
+	}
+	if len(devices.saved) != 0 {
+		t.Fatal("re-enrolment must not create a second record for one key")
+	}
+}
+
+func TestEnrollDeviceUseCase_PropagatesKeyLookupFailure(t *testing.T) {
+	devices := &mockDeviceRepo{
+		findKeyFn: func(_ context.Context, key []byte) (*domain.Device, error) {
+			return nil, errors.New("db down")
+		},
+	}
+	uc, in := enrolFixture(t, devices, "hardware-key")
+
+	_, err := uc.Execute(context.Background(), in)
+	if err == nil || !strings.Contains(err.Error(), "looking up attested key") {
+		t.Fatalf("error = %v, want the lookup failure to surface", err)
+	}
+	if len(devices.saved) != 0 {
+		t.Fatal("an unreadable registry must not fall through to enrolment")
 	}
 }

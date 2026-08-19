@@ -1,9 +1,9 @@
 # Aletheia API
 
 API de proveniência de mídia. Fotos capturadas por um dispositivo inscrito
-carregam prova criptográfica de que aquele hardware produziu **exatamente
-aqueles bytes** naquele momento — e essa prova sobrevive à internet estragar a
-imagem.
+carregam prova criptográfica de que uma chave em hardware seguro assinou
+**exatamente aqueles bytes** naquele momento — e essa prova sobrevive à
+internet estragar a imagem.
 
 Duas metades deliberadamente assimétricas:
 
@@ -34,16 +34,19 @@ Para a visão completa do sistema:
 
 Vale dizer explicitamente, porque a diferença decide o que dá para vender:
 
-**Prova.** Que a imagem veio de um sensor real, num dispositivo genuíno com
-bootloader travado, através de um app assinado por uma chave conhecida, num
-momento específico, e que os bytes não mudaram desde então. Quando um
-certificado é contestado, o sistema diz exatamente qual organização e qual
-dispositivo respondem por ele.
+**Prova.** Que uma chave guardada no elemento seguro de um dispositivo genuíno,
+com bootloader travado e rodando um app assinado por uma chave conhecida,
+assinou exatamente aqueles bytes em resposta a um desafio emitido pelo servidor
+— e que os bytes não mudaram desde então. Quando um certificado é contestado, o
+sistema diz exatamente qual organização e qual dispositivo respondem por ele.
 
-**Não prova.** Que a cena era verdadeira. Uma câmera atestada apontada para um
-monitor exibindo uma imagem gerada produz um certificado válido de uma foto
-falsa. Esse ataque — *rephotography* — não está resolvido por ninguém no setor,
-e as mitigações (moiré, resposta ao flash, profundidade) são uma corrida
+**Não prova.** Que a cena era verdadeira, nem que o sensor gerou aqueles bytes.
+Quem segura a chave é o app, então um app comprometido num dispositivo genuíno
+pode assinar bytes que a câmera nunca viu; as verificações encarecem chegar
+nessa posição, não a eliminam. E uma câmera atestada apontada para um monitor
+exibindo uma imagem gerada produz um certificado válido de uma foto falsa. Esse
+ataque — *rephotography* — não está resolvido por ninguém no setor, e as
+mitigações (moiré, resposta ao flash, profundidade) são uma corrida
 armamentista. Aletheia vende **atribuição e responsabilização**, não detecção
 de IA.
 
@@ -93,9 +96,17 @@ Endpoints disponíveis:
 - Jaeger UI em `http://localhost:16686`
 - RPC Anvil em `http://localhost:8545`
 
-O compose sobe sem raízes de atestação configuradas: a API funciona e verifica
-normalmente, mas a inscrição de dispositivos responde `501` até você fornecer
-as raízes. Ver [`config/README.md`](config/README.md).
+O compose sobe **sem** raízes de atestação: as três variáveis
+`ANDROID_*` vêm comentadas, a API funciona e verifica normalmente, e a inscrição
+de dispositivos responde `501` até você fornecê-las. Para exercitar a inscrição
+localmente, coloque o bundle em `config/android-attestation-roots.pem` e
+descomente as três linhas no `docker-compose.yml`. Ver
+[`config/README.md`](config/README.md).
+
+O `CONTRACT_ADDRESS` do compose é o endereço determinístico do primeiro deploy
+no Anvil, mas nada no compose faz esse deploy: sem publicar o
+`AnchorRegistry`, o worker envia transações para um endereço sem código e a
+ancoragem não ancora nada. Certificar e verificar não dependem disso.
 
 Para derrubar:
 

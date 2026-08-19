@@ -35,9 +35,14 @@ var attestationRank = map[AttestationLevel]int{
 }
 
 // AtLeast reports whether l meets or exceeds min. An unknown level ranks below
-// everything, so an unrecognised value can never satisfy a policy.
+// everything, so an unrecognised value can never satisfy a policy — including
+// the weakest one, which a plain map index would have let it tie with.
 func (l AttestationLevel) AtLeast(min AttestationLevel) bool {
-	return attestationRank[l] >= attestationRank[min]
+	rank, ok := attestationRank[l]
+	if !ok {
+		return false
+	}
+	return rank >= attestationRank[min]
 }
 
 // DeviceStatus is a device's standing in the registry.

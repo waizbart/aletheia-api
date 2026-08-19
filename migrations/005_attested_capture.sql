@@ -10,8 +10,11 @@ CREATE TABLE IF NOT EXISTS devices (
     org_id            UUID        NOT NULL,
     platform          TEXT        NOT NULL,
     -- DER-encoded PKIX SubjectPublicKeyInfo of the hardware-backed capture key.
-    -- The private half never leaves the device's secure element.
-    public_key        BYTEA       NOT NULL,
+    -- The private half never leaves the device's secure element. Unique
+    -- because the key, not the row id, is the device's identity: without the
+    -- constraint a revoked device could enrol the same key again and receive a
+    -- fresh active record.
+    public_key        BYTEA       NOT NULL UNIQUE,
     attestation_level TEXT        NOT NULL,
     model             TEXT        NOT NULL DEFAULT '',
     status            TEXT        NOT NULL DEFAULT 'active',

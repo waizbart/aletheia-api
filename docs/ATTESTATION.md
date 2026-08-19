@@ -10,7 +10,14 @@ verify never becomes a certificate.
 An open registry proves registration, not origin: anyone can upload a generated
 image and receive a certificate for it. Gating certification behind a device
 that proves its key lives in secure hardware changes the claim from "somebody
-registered this" to "this device's sensor produced these exact bytes".
+registered this" to "a key held in this device's secure element signed these
+exact bytes, in response to a challenge we issued".
+
+That is a narrower claim than "the sensor produced these bytes", and the gap is
+deliberate: the app holds the key, so a compromised or hostile app on a genuine
+device can sign bytes the camera never saw. The checks below raise the cost of
+getting into that position — verified boot, a pinned package and signing key —
+but they do not close it. See *Known limits*.
 
 That is the same model C2PA uses for hardware-backed capture. The difference is
 what happens afterwards: an embedded manifest is stripped by the first social
@@ -81,7 +88,7 @@ malformed-DER cases in addition to the policy cases.
 The device signs a length-prefixed, domain-separated byte string:
 
 ```
-"aletheia-capture-v1"
+"aletheia-capture-v1"                       UTF-8, no length prefix
 uint32(len) || contentHash   lowercase hex sha256 of the image bytes
 uint32(len) || nonce         hex challenge issued by the server
 uint32(len) || capturedAt    RFC 3339 nanoseconds, UTC
@@ -90,7 +97,15 @@ uint32(len) || osVersion
 uint32(len) || appVersion
 ```
 
-Two properties matter and both are tested:
+Every field is encoded as UTF-8, and `len` is the length of that **encoding in
+bytes** — never a character or code-unit count. This is the detail an SDK gets
+wrong: Go's `len()` on a string is already a byte count, but Kotlin's
+`String.length` and Swift's `String.count` are not. Use
+`field.toByteArray(Charsets.UTF_8).size` and `Data(field.utf8).count`. A device
+model containing any non-ASCII character is enough to make the two disagree,
+and then nothing verifies.
+
+Two further properties matter and both are tested:
 
 **Domain separation.** The `aletheia-capture-v1` prefix means a signature this
 key produces in some other protocol can never be replayed as a capture.

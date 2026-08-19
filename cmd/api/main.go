@@ -147,14 +147,18 @@ func main() {
 		config.EnvIntOrDefault("RATE_LIMIT_RPS", 20),
 		config.EnvIntOrDefault("RATE_LIMIT_BURST", 40),
 	)
-	trustProxyHeaders := config.EnvBoolOrDefault("TRUST_PROXY_HEADERS", false)
+	// How many proxies of your own sit in front of this process. The client
+	// address is that many entries from the right of X-Forwarded-For; anything
+	// further left was written by the caller. Zero means no proxy, so the
+	// header is ignored and the transport address is used.
+	trustedProxyHops := config.EnvIntOrDefault("TRUSTED_PROXY_HOPS", 0)
 
 	// Order matters: logging sees every request, CORS answers preflights before
 	// they consume rate-limit budget, and the concurrency cap sits closest to
 	// the mux so it bounds only work that actually reaches a handler.
 	wrapped := handler.LoggingMiddleware(
 		handler.CORS(corsOrigins)(
-			handler.RateLimit(limiter, trustProxyHeaders)(
+			handler.RateLimit(limiter, trustedProxyHops)(
 				handler.ConcurrencyLimit(config.EnvIntOrDefault("MAX_CONCURRENT_REQUESTS", 32))(
 					optionalTenant(
 						handler.ObservabilityMiddleware(obsFactory)(mux))))))

@@ -65,9 +65,11 @@ func NewRegistryFromEnv() (*Registry, error) {
 		return nil, fmt.Errorf("attestation: ANDROID_MIN_ATTESTATION_LEVEL must be tee or strongbox, got %q", minLevel)
 	}
 
-	requireBoot := true
+	// The env var keeps its "require" phrasing because that is what an
+	// operator reads in a config file; only the struct field is an opt-out.
+	allowUnverifiedBoot := false
 	if v := os.Getenv("ANDROID_REQUIRE_VERIFIED_BOOT"); v != "" {
-		requireBoot = !strings.EqualFold(v, "false") && v != "0"
+		allowUnverifiedBoot = strings.EqualFold(v, "false") || v == "0"
 	}
 
 	android, err := NewAndroidVerifier(AndroidConfig{
@@ -75,7 +77,7 @@ func NewRegistryFromEnv() (*Registry, error) {
 		AllowedPackages:         packages,
 		AllowedSignatureDigests: digests,
 		MinLevel:                minLevel,
-		RequireVerifiedBoot:     requireBoot,
+		AllowUnverifiedBoot:     allowUnverifiedBoot,
 	})
 	if err != nil {
 		return nil, err

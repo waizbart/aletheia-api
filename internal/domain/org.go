@@ -41,8 +41,11 @@ const (
 	OpVerify Operation = "verify"
 )
 
-// Unlimited marks a plan allowance with no ceiling.
-const Unlimited = 0
+// Unlimited marks a plan allowance with no ceiling. It is negative so that the
+// zero value — what a map miss yields — means "no allowance at all" rather than
+// "uncapped". A lookup that falls through a gap in the table must not hand out
+// free service.
+const Unlimited = -1
 
 // planQuotas is the monthly allowance per plan and operation. Unlimited means
 // the operation is not capped; billing still counts it.
@@ -61,15 +64,23 @@ var planQuotas = map[Plan]map[Operation]int{
 	},
 }
 
-// QuotaFor returns the monthly allowance for a plan and operation. An unknown
-// plan gets the developer allowance: the safe direction to fail is the smallest
-// tier, never an uncapped one.
+// QuotaFor returns the monthly allowance for a plan and operation.
+//
+// Both lookups fail towards the restrictive end. An unknown plan gets the
+// developer allowance — the smallest tier, never an uncapped one. An operation
+// the plan does not list gets no allowance at all, so adding a metered
+// operation without adding it to planQuotas blocks it loudly instead of
+// serving it for free.
 func QuotaFor(p Plan, op Operation) int {
 	limits, ok := planQuotas[p]
 	if !ok {
 		limits = planQuotas[PlanDeveloper]
 	}
-	return limits[op]
+	limit, ok := limits[op]
+	if !ok {
+		return 0
+	}
+	return limit
 }
 
 // BillingPeriod is the calendar month, in UTC, that at falls into. Usage

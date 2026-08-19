@@ -22,6 +22,10 @@ func TestAttestationLevel_AtLeast(t *testing.T) {
 		// An unrecognised level must never satisfy a hardware policy, or a
 		// typo in configuration would silently open the gate.
 		{"unknown level fails a hardware policy", domain.AttestationLevel("magic"), domain.AttestationTEE, false},
+		// Ranking below everything means below software too. A plain map index
+		// would have let an unknown value tie with software at rank zero.
+		{"unknown level fails even the weakest policy", domain.AttestationLevel("magic"), domain.AttestationSoftware, false},
+		{"empty level fails the weakest policy", domain.AttestationLevel(""), domain.AttestationSoftware, false},
 	}
 
 	for _, tt := range tests {

@@ -357,7 +357,7 @@ func TestAndroidVerifier_RootOfTrustOptionalWhenBootNotRequired(t *testing.T) {
 	fx := buildChain(t, kd, false)
 
 	v := newVerifier(t, fx.rootPool, func(c *attestation.AndroidConfig) {
-		c.RequireVerifiedBoot = false
+		c.AllowUnverifiedBoot = true
 	})
 
 	got, err := v.Verify(context.Background(), domain.AttestationRequest{

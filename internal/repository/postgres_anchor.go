@@ -48,6 +48,26 @@ func (r *PostgresAnchorRepo) PendingLeaves(ctx context.Context, limit int) ([]*d
 	return out, nil
 }
 
+// SaveUnconfirmedAnchor records a broadcast transaction with no receipt and no
+// certificates attached.
+//
+// The row is deliberately unreferenced: no certificate points at it, so nothing
+// advertises an inclusion proof against a root that may never land. It exists
+// purely so the transaction hash survives for reconciliation.
+func (r *PostgresAnchorRepo) SaveUnconfirmedAnchor(ctx context.Context, a *domain.Anchor) error {
+	const q = `
+		INSERT INTO anchors (root, leaf_count, tx_hash, block_number, status, created_at)
+		VALUES ($1, $2, $3, 0, $4, $5)
+		RETURNING id`
+
+	if err := r.db.QueryRowContext(ctx, q,
+		a.Root[:], a.LeafCount, a.TxHash, a.Status, a.CreatedAt,
+	).Scan(&a.ID); err != nil {
+		return fmt.Errorf("postgres save unconfirmed anchor: %w", err)
+	}
+	return nil
+}
+
 // SaveAnchor writes the batch and every certificate's proof in one transaction.
 //
 // The atomicity matters: a certificate that recorded an anchor id for a row

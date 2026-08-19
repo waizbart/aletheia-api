@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -144,7 +145,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	})
-	wrapped := handler.RateLimit(l, false)(inner)
+	wrapped := handler.RateLimit(l, 0)(inner)
 
 	req := func() *httptest.ResponseRecorder {
 		rr := httptest.NewRecorder()
@@ -233,42 +234,110 @@ func TestClientIP(t *testing.T) {
 		name       string
 		remoteAddr string
 		headers    map[string]string
-		trustProxy bool
+		hops       int
 		want       string
 	}{
 		{
-			name:       "remote addr host when proxies are untrusted",
+			name:       "remote addr host when no proxy is configured",
 			remoteAddr: "198.51.100.7:41234",
 			want:       "198.51.100.7",
 		},
 		{
-			// Without a trusted proxy, honouring XFF would let any caller
-			// forge a fresh identity per request and evade the limiter.
-			name:       "forwarded header ignored when proxies are untrusted",
+			// With no proxy in front, honouring XFF would let any caller forge
+			// a fresh identity per request and evade the limiter entirely.
+			name:       "forwarded header ignored when no proxy is configured",
 			remoteAddr: "198.51.100.7:41234",
 			headers:    map[string]string{"X-Forwarded-For": "1.2.3.4"},
 			want:       "198.51.100.7",
 		},
 		{
-			name:       "first forwarded hop wins when trusted",
+			name:       "single trusted proxy appended the only entry",
 			remoteAddr: "10.0.0.1:8080",
-			headers:    map[string]string{"X-Forwarded-For": "1.2.3.4, 10.0.0.1"},
-			trustProxy: true,
-			want:       "1.2.3.4",
+			headers:    map[string]string{"X-Forwarded-For": "203.0.113.9"},
+			hops:       1,
+			want:       "203.0.113.9",
 		},
 		{
-			name:       "real-ip fallback when trusted",
+			// The whole point of counting from the right: the caller put
+			// 1.2.3.4 in front, the proxy appended the address it actually saw.
+			// Taking the leftmost entry would hand the caller a new bucket per
+			// request.
+			name:       "spoofed leftmost entry is ignored",
 			remoteAddr: "10.0.0.1:8080",
-			headers:    map[string]string{"X-Real-Ip": "5.6.7.8"},
-			trustProxy: true,
-			want:       "5.6.7.8",
+			headers:    map[string]string{"X-Forwarded-For": "1.2.3.4, 203.0.113.9"},
+			hops:       1,
+			want:       "203.0.113.9",
+		},
+		{
+			name:       "two trusted hops count back two entries",
+			remoteAddr: "10.0.0.1:8080",
+			headers:    map[string]string{"X-Forwarded-For": "1.2.3.4, 203.0.113.9, 10.0.0.2"},
+			hops:       2,
+			want:       "203.0.113.9",
+		},
+		{
+			// Fewer entries than configured hops means the request did not come
+			// through the expected proxies, so nothing in the header is
+			// trustworthy.
+			name:       "chain shorter than the hop count falls back to remote addr",
+			remoteAddr: "10.0.0.1:8080",
+			headers:    map[string]string{"X-Forwarded-For": "203.0.113.9"},
+			hops:       3,
+			want:       "10.0.0.1",
 		},
 		{
 			name:       "empty forwarded header falls back to remote addr",
 			remoteAddr: "10.0.0.1:8080",
-			headers:    map[string]string{"X-Forwarded-For": "  "},
-			trustProxy: true,
+			headers:    map[string]string{"X-Forwarded-For": ""},
+			hops:       1,
 			want:       "10.0.0.1",
+		},
+		{
+			// A non-address would otherwise become its own rate-limit bucket,
+			// which is a free bypass for anything the proxy passes through.
+			name:       "non-ip entry falls back to remote addr",
+			remoteAddr: "10.0.0.1:8080",
+			headers:    map[string]string{"X-Forwarded-For": "not-an-ip"},
+			hops:       1,
+			want:       "10.0.0.1",
+		},
+		{
+			name:       "blank entry falls back to remote addr",
+			remoteAddr: "10.0.0.1:8080",
+			headers:    map[string]string{"X-Forwarded-For": "1.2.3.4,   "},
+			hops:       1,
+			want:       "10.0.0.1",
+		},
+		{
+			name:       "surrounding whitespace is trimmed",
+			remoteAddr: "10.0.0.1:8080",
+			headers:    map[string]string{"X-Forwarded-For": "  203.0.113.9  "},
+			hops:       1,
+			want:       "203.0.113.9",
+		},
+		{
+			name:       "ipv6 entry is accepted",
+			remoteAddr: "10.0.0.1:8080",
+			headers:    map[string]string{"X-Forwarded-For": "2001:db8::1"},
+			hops:       1,
+			want:       "2001:db8::1",
+		},
+		{
+			// X-Real-Ip carries no chain, so a proxy that forwards rather than
+			// overwrites it would hand the caller a free spoof. It is never
+			// consulted.
+			name:       "real-ip header is never trusted",
+			remoteAddr: "10.0.0.1:8080",
+			headers:    map[string]string{"X-Real-Ip": "5.6.7.8"},
+			hops:       1,
+			want:       "10.0.0.1",
+		},
+		{
+			name:       "negative hop count behaves as no proxy",
+			remoteAddr: "198.51.100.7:41234",
+			headers:    map[string]string{"X-Forwarded-For": "1.2.3.4"},
+			hops:       -1,
+			want:       "198.51.100.7",
 		},
 		{
 			name:       "unparseable remote addr is used verbatim",
@@ -285,9 +354,41 @@ func TestClientIP(t *testing.T) {
 				r.Header.Set(k, v)
 			}
 
-			if got := handler.ClientIP(r, tt.trustProxy); got != tt.want {
+			if got := handler.ClientIP(r, tt.hops); got != tt.want {
 				t.Errorf("ClientIP = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// A client that forges a new X-Forwarded-For per request must not get a new
+// rate-limit bucket per request. This is the bypass the hop counting exists to
+// close, so it is asserted end to end through the middleware.
+func TestRateLimit_SpoofedForwardedHeaderCannotEvadeTheLimiter(t *testing.T) {
+	l := handler.NewRateLimiter(1, 1)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	wrapped := handler.RateLimit(l, 1)(inner)
+
+	var lastCode int
+	for i := 0; i < 5; i++ {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "10.0.0.1:8080"
+		// A different forged value each time, with the trusted proxy's entry
+		// appended after it.
+		r.Header.Set("X-Forwarded-For", fmt.Sprintf("1.2.3.%d, 203.0.113.9", i))
+
+		rr := httptest.NewRecorder()
+		wrapped.ServeHTTP(rr, r)
+		lastCode = rr.Code
+	}
+
+	if lastCode != http.StatusTooManyRequests {
+		t.Errorf("last status = %d, want %d — the forged header bought a fresh bucket",
+			lastCode, http.StatusTooManyRequests)
+	}
+	if n := l.Size(); n != 1 {
+		t.Errorf("bucket count = %d, want 1 — forged headers are growing the map", n)
 	}
 }

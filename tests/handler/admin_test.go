@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -138,9 +139,9 @@ func TestHandleCreateOrg(t *testing.T) {
 		}
 	})
 
-	t.Run("surfaces a validation failure", func(t *testing.T) {
+	t.Run("surfaces a validation failure as 400", func(t *testing.T) {
 		creator := &mockOrgCreator{fn: func(context.Context, usecase.CreateOrgInput) (*domain.Org, error) {
-			return nil, errors.New("create org: unknown plan \"platinum\"")
+			return nil, fmt.Errorf("create org: %w: unknown plan %q", domain.ErrInvalidInput, "platinum")
 		}}
 		mux := newAdminMux(creator, nil, nil)
 
@@ -149,6 +150,28 @@ func TestHandleCreateOrg(t *testing.T) {
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("status = %d, want 400", rr.Code)
+		}
+		if !strings.Contains(rr.Body.String(), "platinum") {
+			t.Errorf("a caller-fixable error should say what to fix, got %s", rr.Body)
+		}
+	})
+
+	// A failing database is not a bad request. Reporting it as one misleads the
+	// operator, and echoing the driver's message leaks schema detail.
+	t.Run("reports a storage failure as 500 without leaking it", func(t *testing.T) {
+		creator := &mockOrgCreator{fn: func(context.Context, usecase.CreateOrgInput) (*domain.Org, error) {
+			return nil, errors.New(`pq: relation "orgs" does not exist`)
+		}}
+		mux := newAdminMux(creator, nil, nil)
+
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, adminRequest(http.MethodPost, "/admin/orgs", `{"name":"Acme","plan":"developer"}`))
+
+		if rr.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", rr.Code)
+		}
+		if strings.Contains(rr.Body.String(), "pq:") {
+			t.Errorf("the driver message must not reach the client, got %s", rr.Body)
 		}
 	})
 }

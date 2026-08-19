@@ -86,6 +86,18 @@ pending and the next pass retries it. Re-anchoring costs one extra transaction;
 marking certificates anchored against a root that never landed would hand out
 proofs of nothing. That asymmetry is why the worker errs the way it does.
 
+If the transaction was *broadcast* before the receipt wait failed, its hash is
+written to `anchors` with status `pending` and no certificates attached, and
+logged. That row is a reconciliation handle, not a claim: nothing points at it,
+so no certificate advertises a proof against it. It may still be mined, in
+which case the chain carries a root the retry has already superseded — check
+these rows before assuming a root on chain is unaccounted for.
+
+```sql
+SELECT id, tx_hash, leaf_count, created_at
+  FROM anchors WHERE status = 'pending' ORDER BY created_at DESC;
+```
+
 **Verifying a proof independently.** A certificate's `anchor` block carries
 `tx_hash`, `leaf_index` and `merkle_proof`. Recompute the leaf as
 `keccak256(keccak256(contentHash ‖ featureCommitment))`, then call
@@ -96,10 +108,15 @@ proofs of nothing. That asymmetry is why the worker errs the way it does.
 - [ ] `ADMIN_API_TOKEN` set to a freshly generated secret
 - [ ] TLS terminated in front of the API (Caddy is the least-ops option)
 - [ ] `CORS_ALLOWED_ORIGINS` restricted to real origins, not `*`
-- [ ] `TRUST_PROXY_HEADERS=true` **only** behind a proxy you control — otherwise
-      any caller forges a fresh identity per request and walks past the rate
-      limiter
-- [ ] `ANDROID_ATTESTATION_ROOTS` populated (see `config/README.md`)
+- [ ] `TRUSTED_PROXY_HOPS` set to the number of proxies you actually operate —
+      zero if the process is exposed directly. The client address is read that
+      many entries from the *right* of `X-Forwarded-For`, because proxies
+      append and the leftmost entry is whatever the caller sent. Understating
+      it lets a caller forge a fresh identity per request and walk past the
+      rate limiter
+- [ ] `ANDROID_ATTESTATION_ROOTS` populated (see `config/README.md`) — with
+      all three `ANDROID_*` variables unset the API still starts and verifies,
+      but enrolment answers 501
 - [ ] `ANDROID_ALLOWED_PACKAGES` and `ANDROID_SIGNATURE_DIGESTS` set to your app
 - [ ] `ALLOW_UNATTESTED_CERTIFY` left at `false`
 - [ ] Anchoring account funded
@@ -130,6 +147,10 @@ while anchoring is down — they simply stay pending and land in a later batch.
 immediately; existing certificates are untouched, which is deliberate — they
 are the record of what the device did. Then decide, as a policy question,
 whether certificates from that device need to be re-examined.
+
+Revocation follows the attested key, not the row: the key is unique across the
+registry, and re-enrolling a revoked one is refused. Otherwise the device could
+simply enrol again and receive a fresh active record.
 
 **An API key leaked.** `DELETE /admin/keys/{id}`, then issue a replacement. Keys
 are independent, so revoking one does not disturb the customer's other
