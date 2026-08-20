@@ -15,17 +15,31 @@ import (
 
 type CertifyUseCase struct {
 	repo      CertificateRepository
-	chain     BlockchainService
 	extractor FeatureExtractor
 }
 
-func NewCertifyUseCase(repo CertificateRepository, chain BlockchainService, extractor FeatureExtractor) *CertifyUseCase {
-	return &CertifyUseCase{repo: repo, chain: chain, extractor: extractor}
+// NewCertifyUseCase builds the certification workflow.
+//
+// It no longer talks to the chain. Anchoring moved to a background worker that
+// batches certificates into a single Merkle root, which takes a network round
+// trip out of the request path and stops a slow or failing RPC node from
+// failing a capture that is otherwise complete.
+func NewCertifyUseCase(repo CertificateRepository, extractor FeatureExtractor) *CertifyUseCase {
+	return &CertifyUseCase{repo: repo, extractor: extractor}
 }
 
 type CertifyInput struct {
 	Content    io.Reader
 	Registrant string
+	// OrgID scopes the certificate to a tenant.
+	OrgID string
+	// DeviceID is set when the content arrived through the attested capture
+	// path. Empty means an unattested upload, which carries no capture-time
+	// provenance.
+	DeviceID string
+	// CapturedAt is the device-reported capture time, covered by the device
+	// signature. Nil for unattested uploads.
+	CapturedAt *time.Time
 }
 
 type CertifyOutput struct {
@@ -113,31 +127,16 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (out *Ce
 		return nil
 	})
 
-	var txHash string
-	var blockNum uint64
-	if err = observability.StageVoid(ctx, "chain_anchor", func(h observability.StageHandle) error {
-		tx, bn, e := uc.chain.RegisterHash(ctx, contentHash, commitmentHex)
-		if e == nil {
-			h.SetAttrs(
-				observability.Attr{Key: "tx_hash", Value: tx},
-				observability.Attr{Key: "block_number", Value: int64(bn)},
-			)
-		}
-		txHash, blockNum = tx, bn
-		return e
-	}); err != nil {
-		return nil, fmt.Errorf("certify: registering on chain: %w", err)
-	}
-
 	cert := &domain.Certificate{
 		ContentHash:       contentHash,
 		PHash:             phash,
 		Signature:         signature,
 		FeatureCommitment: &commitment,
 		Registrant:        in.Registrant,
-		TxHash:            txHash,
-		BlockNumber:       blockNum,
 		CreatedAt:         time.Now().UTC(),
+		OrgID:             in.OrgID,
+		DeviceID:          in.DeviceID,
+		CapturedAt:        in.CapturedAt,
 	}
 
 	if err = observability.StageVoid(ctx, "db_save", func(h observability.StageHandle) error {
@@ -152,7 +151,7 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (out *Ce
 
 	setVerdict(observability.Verdict{Outcome: "certified", Detail: map[string]any{
 		"content_hash": contentHash,
-		"tx_hash":      txHash,
+		"commitment":   commitmentHex,
 		"cert_id":      cert.ID,
 	}})
 	return &CertifyOutput{Certificate: cert}, nil

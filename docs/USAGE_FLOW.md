@@ -8,13 +8,20 @@ Visão orientada ao usuário. Para o detalhamento técnico, ver
 
 ```mermaid
 flowchart TD
-    START(["Usuário tem uma imagem"]) --> Q1{Quer certificar<br/>ou verificar?}
+    START(["Alguém tem uma imagem"]) --> Q1{Quer certificar<br/>ou verificar?}
 
-    Q1 -- "Certificar<br/>(fonte confiável)" --> C1["POST /certificates"]
+    Q1 -- "Certificar" --> C0{Dispositivo já<br/>inscrito?}
+    C0 -- "Não" --> C_ENR["POST /captures/nonce<br/>POST /devices<br/>(atestação de hardware)"]
+    C_ENR --> C_ENR_R{Atestação passa<br/>na política?}
+    C_ENR_R -- "Não" --> C_403["403 Forbidden<br/>com o portão que falhou"]
+    C_ENR_R -- "Sim" --> C0
+    C0 -- "Sim" --> C1["POST /captures/nonce<br/>assinar no TEE<br/>POST /captures"]
     C1 --> C2{API consegue<br/>processar?}
-    C2 -- "Hash já existe" --> C_DUP["409 Conflict"]
-    C2 -- "Erro de extração<br/>ou anchor" --> C_ERR["422 Unprocessable"]
-    C2 -- "OK" --> C3["201 Created<br/>+ tx_hash + block_number"]
+    C2 -- "Cota do plano esgotada" --> C_402["402 Payment Required"]
+    C2 -- "Assinatura não confere" --> C_SIG["403 Forbidden"]
+    C2 -- "Desafio já usado" --> C_409["409 Conflict"]
+    C2 -- "Hash já certificado" --> C_DUP["409 Conflict"]
+    C2 -- "OK" --> C3["201 Created<br/>(ancoragem vem depois)"]
 
     Q1 -- "Verificar" --> V0{Tenho a imagem<br/>ou só o hash?}
     V0 -- "Só o hash" --> V_H["GET /certificates/verify?hash="]
@@ -35,23 +42,34 @@ flowchart TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Submetida: POST /certificates
+    [*] --> Submetida: POST /captures
 
-    Submetida --> Rejeitada: hash duplicado (409)
-    Submetida --> Indexada: SHA-256 + pHash + ORB
+    Submetida --> Rejeitada: desafio inválido (409)<br/>assinatura não confere (403)<br/>dispositivo revogado (403)
+    Submetida --> Indexada: SHA-256 + pHash + ORB<br/>+ grade de cores
 
-    Indexada --> AncoradaPendente: eth_sendTransaction<br/>retorna txHash
-    AncoradaPendente --> Persistida: INSERT certificates +<br/>phash_bands em transação
-
+    Indexada --> Persistida: INSERT certificates +<br/>phash_bands em transação
     Persistida --> [*]: 201 Created
 
-    Persistida --> Consultada: GET/POST verify
-    Consultada --> Persistida: resposta enviada
+    Persistida --> AguardandoAncora: já verificável,<br/>ainda sem prova on-chain
+    AguardandoAncora --> Ancorada: worker commita o lote<br/>sob uma raiz Merkle
 
-    note right of AncoradaPendente
-      block_number ainda é 0;
-      receipt não é consultado
-      no fluxo atual.
+    Ancorada --> Consultada: GET/POST verify
+    Consultada --> Ancorada: resposta enviada
+
+    note right of AguardandoAncora
+      O certificado é válido e
+      verificável imediatamente.
+      A âncora acrescenta uma prova
+      pública de existência, num
+      lote, no próximo ciclo.
+    end note
+
+    note right of Ancorada
+      block_number vem do receipt,
+      então é sempre um bloco real.
+      merkle_proof permite conferir
+      contra a raiz on-chain sem
+      confiar nesta API.
     end note
 ```
 

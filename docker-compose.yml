@@ -42,12 +42,40 @@ services:
       - "8080:8080"
     environment:
       DATABASE_URL: postgres://aletheia:aletheia@postgres:5432/aletheia?sslmode=disable
-      RPC_URL: http://anvil:8545
-      FROM_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-      CONTRACT_ADDRESS: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
       SERVER_PORT: "8080"
+
+      # Admin token guarding tenant onboarding, certificate deletion and the
+      # observability dashboard. This value is for local development only.
+      ADMIN_API_TOKEN: local-dev-admin-token
+
+      # Anchoring. The key below is Anvil's first development account, which is
+      # pre-funded on the local node and published in Foundry's documentation —
+      # never use it anywhere else.
+      RPC_URL: http://anvil:8545
+      CONTRACT_ADDRESS: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+      ANCHOR_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+      CHAIN_ID: "31337"
+      ANCHOR_INTERVAL: 1m
+
+      # Attested capture is intentionally left unconfigured.
+      #
+      # The Google hardware attestation roots are not in the repository — they
+      # rotate, and a stale committed bundle is worse than none. With all three
+      # variables unset the API starts and verifies normally, and device
+      # enrolment answers 501 unsupported, which is the truth.
+      #
+      # To exercise enrolment locally, drop the roots bundle at
+      # config/android-attestation-roots.pem (see config/README.md) and
+      # uncomment all three:
+      #
+      # ANDROID_ATTESTATION_ROOTS: /config/android-attestation-roots.pem
+      # ANDROID_ALLOWED_PACKAGES: com.aletheia.camera
+      # ANDROID_SIGNATURE_DIGESTS: "<sha256 of your APK signing certificate>"
+
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4318
       OTEL_SERVICE_NAME: aletheia-api
+    volumes:
+      - ./config:/config:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -35,8 +35,15 @@ func TestE2E_Certify_Image_HappyPath(t *testing.T) {
 	if cert.Registrant != "alice" {
 		t.Errorf("Registrant = %s, want alice", cert.Registrant)
 	}
-	if cert.TxHash == "" {
-		t.Error("TxHash empty")
+	// Certification no longer touches the chain: a certificate is issued
+	// immediately and the anchor worker commits it in a later batch. So a fresh
+	// certificate must carry no transaction and no inclusion proof — claiming
+	// either here would be claiming a commitment that does not exist yet.
+	if cert.TxHash != "" {
+		t.Errorf("TxHash = %q, want empty until the anchor worker runs", cert.TxHash)
+	}
+	if cert.Anchor != nil {
+		t.Error("a freshly certified image must not advertise an inclusion proof")
 	}
 	if cert.ID == "" {
 		t.Error("ID empty")

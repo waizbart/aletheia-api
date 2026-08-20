@@ -16,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 
+	"github.com/waizbart/aletheia-api/internal/attestation"
 	"github.com/waizbart/aletheia-api/internal/config"
 	"github.com/waizbart/aletheia-api/internal/feature"
 	"github.com/waizbart/aletheia-api/internal/handler"
@@ -47,10 +48,12 @@ func main() {
 	defer extractor.Close()
 
 	certRepo := repository.NewPostgresCertificateRepo(db)
-	chainSvc, err := repository.NewBlockchainServiceFromEnv()
+	anchorRepo := repository.NewPostgresAnchorRepo(db)
+	anchorSvc, err := repository.NewAnchorServiceFromEnv()
 	if err != nil {
-		log.Fatalf("initializing blockchain service: %v", err)
+		log.Fatalf("initializing anchor service: %v", err)
 	}
+	log.Printf("anchoring from %s", anchorSvc.From())
 
 	// Observability: OpenTelemetry tracer (no-op unless an OTLP endpoint is set)
 	// plus the in-memory collector that backs the live dashboard.
@@ -75,24 +78,102 @@ func main() {
 	collector := observability.NewCollector(ringCap)
 	obsFactory := observability.NewFactory(collector, tracer)
 
-	certifyUC := usecase.NewCertifyUseCase(certRepo, chainSvc, extractor)
+	deviceRepo := repository.NewPostgresDeviceRepo(db)
+	nonceRepo := repository.NewPostgresNonceRepo(db)
+	orgRepo := repository.NewPostgresOrgRepo(db)
+	usageRepo := repository.NewPostgresUsageRepo(db)
+
+	attestations, err := attestation.NewRegistryFromEnv()
+	if err != nil {
+		log.Fatalf("initializing attestation verifiers: %v", err)
+	}
+	if platforms := attestations.Platforms(); len(platforms) == 0 {
+		log.Println("WARNING: no attestation verifier configured — device enrolment will report every platform as unsupported")
+	} else {
+		log.Printf("attestation enabled for %v", platforms)
+	}
+
+	certifyUC := usecase.NewCertifyUseCase(certRepo, extractor)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor)
 	deleteUC := usecase.NewDeleteUseCase(certRepo)
 	thumbnailUC := usecase.NewThumbnailUseCase(certRepo, extractor)
 
-	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC)
+	nonceTTL := config.EnvDurationOrDefault("CAPTURE_NONCE_TTL", 5*time.Minute)
+	issueNonceUC := usecase.NewIssueNonceUseCase(nonceRepo, nonceTTL, time.Now)
+	enrollUC := usecase.NewEnrollDeviceUseCase(deviceRepo, nonceRepo, attestations, time.Now)
+	revokeDeviceUC := usecase.NewRevokeDeviceUseCase(deviceRepo, time.Now)
+	captureUC := usecase.NewAttestedCaptureUseCase(deviceRepo, nonceRepo, certifyUC, time.Now)
+
+	anchorUC := usecase.NewAnchorUseCase(
+		anchorRepo, anchorSvc,
+		config.EnvIntOrDefault("ANCHOR_BATCH_SIZE", 4096),
+		time.Now,
+	)
+	go anchorUC.Run(ctx, config.EnvDurationOrDefault("ANCHOR_INTERVAL", time.Hour))
+
+	usageUC := usecase.NewUsageUseCase(usageRepo, time.Now)
+	createOrgUC := usecase.NewCreateOrgUseCase(orgRepo, time.Now)
+	issueKeyUC := usecase.NewIssueAPIKeyUseCase(orgRepo, time.Now)
+	revokeKeyUC := usecase.NewRevokeAPIKeyUseCase(orgRepo, time.Now)
+	authUC := usecase.NewAuthenticateUseCase(orgRepo)
+
+	adminToken := config.EnvOrDefault("ADMIN_API_TOKEN", "")
+	if adminToken == "" {
+		log.Println("WARNING: ADMIN_API_TOKEN is unset — admin routes will reject every request")
+	}
+	admin := handler.AdminAuth(adminToken)
+	tenant := handler.APIKeyAuth(authUC)
+	optionalTenant := handler.OptionalAPIKeyAuth(authUC)
+
+	allowUnattested := config.EnvBoolOrDefault("ALLOW_UNATTESTED_CERTIFY", false)
+	if allowUnattested {
+		log.Println("WARNING: ALLOW_UNATTESTED_CERTIFY is on — POST /certificates accepts uploads with no capture-time provenance")
+	}
+
+	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC, usageUC, allowUnattested)
+	captureHandler := handler.NewCaptureHandler(issueNonceUC, enrollUC, revokeDeviceUC, captureUC, usageUC, usageUC)
+	adminHandler := handler.NewAdminHandler(createOrgUC, issueKeyUC, revokeKeyUC)
 
 	mux := http.NewServeMux()
-	certHandler.RegisterRoutes(mux)
+	certHandler.RegisterRoutes(mux, admin, tenant)
+	captureHandler.RegisterRoutes(mux, tenant)
+	adminHandler.RegisterRoutes(mux, admin)
 	handler.RegisterDocsRoutes(mux)
 	handler.RegisterHealthRoutes(mux)
-	handler.RegisterObservabilityRoutes(mux, collector, thumbnailUC)
+	handler.RegisterObservabilityRoutes(mux, collector, thumbnailUC, admin)
 
 	corsOrigins := strings.Split(config.EnvOrDefault("CORS_ALLOWED_ORIGINS", "*"), ",")
-	wrapped := handler.LoggingMiddleware(handler.CORS(corsOrigins)(handler.ObservabilityMiddleware(obsFactory)(mux)))
+	limiter := handler.NewRateLimiter(
+		config.EnvIntOrDefault("RATE_LIMIT_RPS", 20),
+		config.EnvIntOrDefault("RATE_LIMIT_BURST", 40),
+	)
+	// How many proxies of your own sit in front of this process. The client
+	// address is that many entries from the right of X-Forwarded-For; anything
+	// further left was written by the caller. Zero means no proxy, so the
+	// header is ignored and the transport address is used.
+	trustedProxyHops := config.EnvIntOrDefault("TRUSTED_PROXY_HOPS", 0)
+
+	// Order matters: logging sees every request, CORS answers preflights before
+	// they consume rate-limit budget, and the concurrency cap sits closest to
+	// the mux so it bounds only work that actually reaches a handler.
+	wrapped := handler.LoggingMiddleware(
+		handler.CORS(corsOrigins)(
+			handler.RateLimit(limiter, trustedProxyHops)(
+				handler.ConcurrencyLimit(config.EnvIntOrDefault("MAX_CONCURRENT_REQUESTS", 32))(
+					optionalTenant(
+						handler.ObservabilityMiddleware(obsFactory)(mux))))))
 
 	port := config.EnvOrDefault("SERVER_PORT", "8080")
-	srv := &http.Server{Addr: fmt.Sprintf(":%s", port), Handler: wrapped}
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%s", port),
+		Handler: wrapped,
+		// ReadTimeout and WriteTimeout stay unset on purpose: uploads run to
+		// 100 MB and the dashboard holds SSE connections open indefinitely, so
+		// a blanket deadline would break both. Slowloris is covered by
+		// ReadHeaderTimeout, and idle connections by IdleTimeout.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	go func() {
 		log.Printf("server listening on %s", srv.Addr)

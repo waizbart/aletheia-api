@@ -1,43 +1,84 @@
 # Aletheia API
 
-API de certificação de conteúdo que ancora hashes criptográficos de
-imagens em uma blockchain EVM para provar autoria e impedir que
-conteúdo gerado por IA seja passado como real.
+API de proveniência de mídia. Fotos capturadas por um dispositivo inscrito
+carregam prova criptográfica de que uma chave em hardware seguro assinou
+**exatamente aqueles bytes** naquele momento — e essa prova sobrevive à
+internet estragar a imagem.
 
-Para a visão completa do sistema, ver:
+Duas metades deliberadamente assimétricas:
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): contêineres,
-  componentes, modelo de dados e integração com a blockchain.
-- [`docs/USAGE_FLOW.md`](docs/USAGE_FLOW.md): jornada do usuário,
-  ciclo de vida do certificado e modos de verificação.
-- [`docs/SEQUENCE_DIAGRAM.md`](docs/SEQUENCE_DIAGRAM.md): sequências
-  detalhadas de certificação e verificação.
+- **Certificar é exato e fechado.** Só o app de câmera ou um parceiro embutindo
+  o SDK certifica. O dispositivo gera uma chave dentro do elemento seguro,
+  prova isso ao servidor uma vez na inscrição e, daí em diante, assina cada
+  captura com ela.
+- **Verificar é tolerante e aberto.** Qualquer um verifica, de graça. O
+  pipeline perceptual reencontra o certificado a partir de um screenshot, de um
+  reenvio no WhatsApp ou de um recorte — casos em que metadados embutidos já
+  teriam sido removidos há muito tempo.
+
+Para a visão completa do sistema:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): contêineres, componentes,
+  modelo de dados e integração com a blockchain.
+- [`docs/ATTESTATION.md`](docs/ATTESTATION.md): o protocolo de captura
+  atestada, o que cada verificação garante e o que ela não garante.
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md): configuração, onboarding de
+  clientes, worker de ancoragem e runbook.
+- [`docs/USAGE_FLOW.md`](docs/USAGE_FLOW.md): jornada do usuário e ciclo de
+  vida do certificado.
+- [`docs/SEQUENCE_DIAGRAM.md`](docs/SEQUENCE_DIAGRAM.md): sequências detalhadas.
+- [`docs/DATASET_GENERATION.md`](docs/DATASET_GENERATION.md): geração do
+  dataset de benchmark.
+
+## O que o sistema prova — e o que não prova
+
+Vale dizer explicitamente, porque a diferença decide o que dá para vender:
+
+**Prova.** Que uma chave guardada no elemento seguro de um dispositivo genuíno,
+com bootloader travado e rodando um app assinado por uma chave conhecida,
+assinou exatamente aqueles bytes em resposta a um desafio emitido pelo servidor
+— e que os bytes não mudaram desde então. Quando um certificado é contestado, o
+sistema diz exatamente qual organização e qual dispositivo respondem por ele.
+
+**Não prova.** Que a cena era verdadeira, nem que o sensor gerou aqueles bytes.
+Quem segura a chave é o app, então um app comprometido num dispositivo genuíno
+pode assinar bytes que a câmera nunca viu; as verificações encarecem chegar
+nessa posição, não a eliminam. E uma câmera atestada apontada para um monitor
+exibindo uma imagem gerada produz um certificado válido de uma foto falsa. Esse
+ataque — *rephotography* — não está resolvido por ninguém no setor, e as
+mitigações (moiré, resposta ao flash, profundidade) são uma corrida
+armamentista. Aletheia vende **atribuição e responsabilização**, não detecção
+de IA.
 
 ## Como funciona
 
-1. **Certificar.** Uma fonte confiável envia uma imagem. A API calcula
-   SHA-256, extrai pHash + descritores ORB + grade de cores LAB
-   (128×128 médias por célula) via OpenCV, ancora o par
-   `(contentHash, featureCommitment)` numa transação EVM e persiste o
-   certificado em PostgreSQL. Nenhuma imagem é armazenada.
-2. **Verificar.** Qualquer um pode consultar por hash
-   (`GET /certificates/verify?hash=`) ou enviar uma imagem
-   (`POST /certificates/verify`). O fluxo por imagem tenta primeiro o
-   match exato por SHA-256 e, na ausência, cai num caminho de
-   similaridade visual usando LSH em `phash_bands`, Hamming-256 e
-   re-check ORB + resíduo de cor contra a grade de cores armazenada no
-   certificado.
+1. **Desafio.** O SDK pede um nonce de uso único (`POST /captures/nonce`).
+2. **Inscrição, uma vez por dispositivo.** O dispositivo gera uma chave no
+   TEE/StrongBox vinculada ao desafio e envia a cadeia de atestação
+   (`POST /devices`). O servidor valida a cadeia até uma raiz de hardware do
+   Google, confere o desafio, exige chave gerada em hardware, bootloader
+   travado e app assinado por chave conhecida — e então fixa a chave pública.
+3. **Captura.** O dispositivo assina `SHA-256(bytes) ‖ nonce ‖ metadados` com
+   aquela chave e envia a imagem (`POST /captures`). O servidor confere a
+   assinatura contra a chave fixada, extrai pHash + descritores ORB + grade de
+   cores LAB via OpenCV e persiste o certificado. **Nenhuma imagem é
+   armazenada.**
+4. **Ancoragem.** Um worker em segundo plano agrupa os certificados pendentes
+   sob uma única raiz Merkle e a grava na blockchain. Cada certificado guarda
+   sua prova de inclusão, então qualquer um confere contra a raiz on-chain sem
+   confiar nesta API.
+5. **Verificação.** Por hash (`GET /certificates/verify?hash=`) ou por upload
+   (`POST /certificates/verify`). O upload tenta primeiro o match exato por
+   SHA-256 e, na ausência, cai num caminho de similaridade visual usando LSH em
+   `phash_bands`, Hamming-256 e recheque ORB + resíduo de cor.
 
 ## Pré-requisitos
 
 - Docker e Docker Compose v2 (recomendado); ou
-- Go 1.22+, PostgreSQL 15+, OpenCV instalado no host (necessário para
-  o `gocv`) e um endpoint JSON-RPC EVM (Anvil/Polygon).
+- Go 1.22+, PostgreSQL 15+, OpenCV instalado no host (necessário para o `gocv`)
+  e um endpoint JSON-RPC EVM (Anvil/Polygon).
 
 ## Subir com Docker (recomendado)
-
-O `docker-compose.yml` sobe Postgres, Anvil, Jaeger e a API, já com as
-envs cabeadas entre eles.
 
 ```bash
 git clone https://github.com/waizbart/aletheia-api.git
@@ -49,11 +90,23 @@ Endpoints disponíveis:
 
 - API em `http://localhost:8080`
 - Swagger UI em `http://localhost:8080/docs`
-- Spec OpenAPI em `http://localhost:8080/docs/openapi.yaml`
 - Health em `http://localhost:8080/health`
 - Painel de observabilidade em `http://localhost:8080/observability`
+  (exige o token de admin)
 - Jaeger UI em `http://localhost:16686`
 - RPC Anvil em `http://localhost:8545`
+
+O compose sobe **sem** raízes de atestação: as três variáveis
+`ANDROID_*` vêm comentadas, a API funciona e verifica normalmente, e a inscrição
+de dispositivos responde `501` até você fornecê-las. Para exercitar a inscrição
+localmente, coloque o bundle em `config/android-attestation-roots.pem` e
+descomente as três linhas no `docker-compose.yml`. Ver
+[`config/README.md`](config/README.md).
+
+O `CONTRACT_ADDRESS` do compose é o endereço determinístico do primeiro deploy
+no Anvil, mas nada no compose faz esse deploy: sem publicar o
+`AnchorRegistry`, o worker envia transações para um endereço sem código e a
+ancoragem não ancora nada. Certificar e verificar não dependem disso.
 
 Para derrubar:
 
@@ -64,16 +117,11 @@ docker compose down -v    # apaga pgdata
 
 ## Subir só a API local (Go) com a infra no Docker
 
-Útil para iterar mais rápido sem rebuildar a imagem:
-
 ```bash
 docker compose up -d postgres anvil
 cp .env.example .env
 go run ./cmd/api
 ```
-
-O `.env.example` já aponta para `localhost` nas portas expostas pelo
-compose.
 
 ## Subir sem Docker
 
@@ -85,17 +133,13 @@ compose.
    cp .env.example .env
    ```
 
-2. Edite `.env` com sua conexão Postgres, RPC EVM, endereço de
-   transmissor (`FROM_ADDRESS`) e endereço do contrato âncora
-   (`CONTRACT_ADDRESS`).
+2. Edite `.env`. No mínimo: `DATABASE_URL`, `ADMIN_API_TOKEN`, `RPC_URL`,
+   `CONTRACT_ADDRESS`, `ANCHOR_PRIVATE_KEY` e `CHAIN_ID`.
 
 3. Rode as migrações na ordem:
 
    ```bash
-   psql "$DATABASE_URL" -f migrations/001_create_certificates.sql
-   psql "$DATABASE_URL" -f migrations/002_perceptual_v2.sql
-   psql "$DATABASE_URL" -f migrations/003_phash_bands_and_commitment.sql
-   psql "$DATABASE_URL" -f migrations/004_color_grid.sql
+   for f in migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done
    ```
 
 4. Suba a API:
@@ -104,99 +148,60 @@ compose.
    go run ./cmd/api
    ```
 
-A porta vem de `SERVER_PORT` (default `8080`).
+## Autenticação
 
-## Documentação da API
+Três níveis, deliberadamente distintos:
 
-Swagger UI interativo em
-[http://localhost:8080/docs](http://localhost:8080/docs) com o servidor
-rodando. O spec OpenAPI 3.0 bruto fica em `/docs/openapi.yaml`.
+| Nível | Credencial | Alcança |
+|---|---|---|
+| Público | nenhuma | `GET /health`, `/docs`, verificação |
+| Tenant | `Authorization: Bearer alk_…` | captura, inscrição de dispositivos, uso |
+| Admin | `Authorization: Bearer <ADMIN_API_TOKEN>` | criar organizações e chaves, apagar certificados, painel |
 
-## Observabilidade
+O onboarding não é self-service de propósito: um registrante só vale alguma
+coisa se alguém o avaliou, e essa avaliação é o diferencial. Criar organização
+e emitir chaves são ações de operador.
 
-A API instrumenta cada etapa dos fluxos de certificação e verificação e
-expõe isso de duas formas:
-
-- **Painel ao vivo** em
-  [http://localhost:8080/observability](http://localhost:8080/observability):
-  acompanha em tempo real (via Server-Sent Events) cada etapa do pipeline
-  acendendo — `SHA-256 ➜ pHash ➜ ORB ➜ commitment ➜ blockchain ➜
-  Postgres` na certificação, e `pHash variants ➜ LSH ➜ comparação de
-  candidatos` na verificação. Mostra os valores reais de cada etapa, a
-  latência por etapa e total, a decisão de verificação (distância de
-  Hamming, inliers ORB, resíduo de cor LAB e o motivo de casar ou não por
-  candidato) e um histórico das últimas requisições.
-- **Spans OpenTelemetry** exportados via OTLP/HTTP para o Jaeger
-  ([http://localhost:16686](http://localhost:16686)). Cada requisição vira
-  um span pai com um span filho por etapa, carregando os mesmos atributos.
-
-O export OTel é opcional: com `OTEL_EXPORTER_OTLP_ENDPOINT` em branco os
-spans viram no-op e a API roda normalmente sem o Jaeger. O painel
-funciona independentemente do OTel.
+Apenas o hash SHA-256 de uma chave de API é armazenado. O texto puro existe uma
+única vez, na resposta da chamada que a criou.
 
 ## Endpoints
 
-### Health
+### Onboarding (admin)
 
 ```
-GET /health
+POST   /admin/orgs                 { "name": "Acme", "plan": "developer" }
+POST   /admin/orgs/{id}/keys       { "name": "ci" }      -> devolve a chave uma vez
+DELETE /admin/keys/{id}
 ```
 
-Devolve `200 OK` com `{ "status": "ok" }` quando o processo está no ar.
-
-### Certificar imagem
+### Captura atestada (tenant)
 
 ```
-POST /certificates
-Content-Type: multipart/form-data
+POST /captures/nonce               -> { "nonce", "expires_at" }
 
-file: <arquivo de imagem>
-X-Registrant: <opcional, identificador do registrante>
+POST /devices                      { "platform", "nonce", "cert_chain": [...], "model" }
+POST /devices/{id}/revoke          { "reason" }
+
+POST /captures                     multipart/form-data
+                                     file, device_id, nonce, signature (base64),
+                                     captured_at (RFC 3339), model, os_version, app_version
+
+GET  /usage                        -> consumo do período corrente
 ```
 
 Tipos aceitos: JPEG, PNG, GIF, WebP, BMP, TIFF. Limite de 100 MB.
 
-Resposta (`201 Created`):
+Erros de captura: `402` (cota do plano esgotada), `403` (assinatura não
+confere, ou dispositivo revogado), `404` (dispositivo não inscrito), `409`
+(desafio já usado, ou conteúdo já certificado).
 
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "registrant": "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
-  "tx_hash": "0x9fce0c2b9b0d2d8f3a1e5e7d4c5b3a8f7e6d4c3b2a1908f7e6d5c4b3a2918e7",
-  "block_number": 0,
-  "created_at": "2026-02-25T12:00:00Z"
-}
-```
-
-Erros possíveis: `400` (arquivo ausente), `409` (já certificado), `413`
-(acima de 100 MB), `415` (tipo não aceito), `422` (falha em extração,
-anchor ou persistência).
-
-> `block_number` é gravado como `0` hoje. O serviço de RPC não busca o
-> receipt depois do `eth_sendTransaction`. Detalhes em
-> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
-### Verificar por upload
+### Verificação (público)
 
 ```
-POST /certificates/verify
-Content-Type: multipart/form-data
-
-file: <arquivo de imagem>
+GET  /certificates/verify?hash=<sha256-hex>
+POST /certificates/verify          multipart/form-data com `file`
 ```
-
-Tenta match exato por SHA-256 e, na ausência, cai no caminho de
-similaridade visual (pHash variants ➜ LSH bands ➜ Hamming-256 ➜
-re-check ORB nos top-K candidatos).
-
-### Verificar por hash
-
-```
-GET /certificates/verify?hash=<sha256-hex>
-```
-
-Ambos os endpoints respondem com o mesmo formato:
 
 `200 OK` quando certificado:
 
@@ -205,62 +210,81 @@ Ambos os endpoints respondem com o mesmo formato:
   "certified": true,
   "certificate": {
     "id": "550e8400-e29b-41d4-a716-446655440000",
-    "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "registrant": "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
-    "tx_hash": "0x9fce0c2b9b0d2d8f3a1e5e7d4c5b3a8f7e6d4c3b2a1908f7e6d5c4b3a2918e7",
-    "block_number": 0,
-    "created_at": "2026-02-25T12:00:00Z"
+    "content_hash": "e3b0c442…",
+    "registrant": "9f1c…",
+    "attested": true,
+    "device_id": "7b2e…",
+    "captured_at": "2026-08-12T15:04:05.123456789Z",
+    "created_at": "2026-08-12T15:04:06Z",
+    "anchor": {
+      "tx_hash": "0x9fce…",
+      "block_number": 63481022,
+      "leaf_index": 17,
+      "merkle_proof": ["0x…", "0x…"]
+    }
   }
 }
 ```
 
-`404 Not Found` quando não certificado:
+`404 Not Found` quando não certificado: `{ "certified": false, "certificate": null }`.
 
-```json
-{ "certified": false, "certificate": null }
-```
+O campo `attested` é o mais importante para quem verifica: distingue uma
+captura de câmera de um upload comum. `anchor` só aparece depois que o worker
+ancora o lote.
 
-### Remover certificado
+### Remover certificado (admin)
 
 ```
 DELETE /certificates/<sha256-hex>
 ```
 
-Apaga o certificado pelo SHA-256. Todos os dados do certificado
-(assinatura ORB, grade de cores, bandas de pHash) vivem no banco, então
-a remoção é uma única operação atômica.
+### Upload não atestado (legado, desligado por padrão)
 
-Respostas: `204 No Content` (sem corpo) em caso de sucesso; `404 Not
-Found` quando não há certificado para o hash.
+`POST /certificates` aceita um upload sem proveniência de captura. Fica
+**desligado** salvo `ALLOW_UNATTESTED_CERTIFY=true`, e responde `410 Gone`
+quando desligado. Existe apenas como rota de migração para integrações
+anteriores ao SDK — um upload que ninguém endossou é exatamente o que a captura
+atestada substitui.
 
 ## Variáveis de ambiente
 
-Todas obrigatórias salvo indicação em contrário. Ver `.env.example`.
+Ver [`.env.example`](.env.example), que documenta cada variável e por que ela
+tem o valor padrão que tem. As essenciais:
 
-| Variável | Descrição | Exemplo |
-|----------|-----------|---------|
-| `DATABASE_URL` | DSN do PostgreSQL | `postgres://aletheia:aletheia@localhost:5432/aletheia?sslmode=disable` |
-| `RPC_URL` | Endpoint JSON-RPC EVM | `http://127.0.0.1:8545` |
-| `FROM_ADDRESS` | Endereço EVM destravado usado por `eth_sendTransaction` | `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` |
-| `CONTRACT_ADDRESS` | Endereço do contrato âncora | `0x5FbDB2315678afecb367f032d93F642f64180aa3` |
-| `SERVER_PORT` | Porta HTTP (opcional, default `8080`) | `8080` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Endpoint OTLP/HTTP do Jaeger (opcional; em branco desliga o export) | `jaeger:4318` |
-| `OTEL_SERVICE_NAME` | Nome do serviço nos traces (opcional, default `aletheia-api`) | `aletheia-api` |
-| `OBS_RING_CAPACITY` | Traces recentes mantidos em memória para o painel (opcional, default `50`) | `50` |
+| Variável | Descrição |
+|----------|-----------|
+| `DATABASE_URL` | DSN do PostgreSQL |
+| `ADMIN_API_TOKEN` | Token das rotas de admin. Em branco **rejeita tudo**, não libera |
+| `RPC_URL` / `CONTRACT_ADDRESS` | Endpoint EVM e `AnchorRegistry` implantado |
+| `ANCHOR_PRIVATE_KEY` / `CHAIN_ID` | Conta que assina as ancoragens e a rede |
+| `ANDROID_ATTESTATION_ROOTS` | Bundle PEM das raízes de hardware do Google |
+| `ANDROID_ALLOWED_PACKAGES` | Application IDs autorizados a inscrever |
+| `ANDROID_SIGNATURE_DIGESTS` | SHA-256 hex dos certificados de assinatura do APK |
+| `ALLOW_UNATTESTED_CERTIFY` | Reabre `POST /certificates`. Padrão `false` |
+
+## Contrato
+
+[`contracts/AnchorRegistry.sol`](contracts/AnchorRegistry.sol) registra raízes
+Merkle de forma append-only, emite um evento por lote e expõe `verify` sobre a
+biblioteca `MerkleProof` da OpenZeppelin. Raízes nunca são removidas ou
+sobrescritas: uma ancoragem afirma que um conjunto de certificados existia num
+instante, e permitir edição tornaria a afirmação inútil.
 
 ## Estrutura do projeto
 
 ```
-cmd/api/              Entrypoint e wiring de dependências
-internal/domain/      Entidades e lógica de negócio pura
-internal/usecase/     Workflows de aplicação e ports (interfaces)
-internal/handler/     Handlers HTTP, middleware, DTOs, Swagger
-internal/repository/  Adapters PostgreSQL e EVM RPC
-internal/feature/     Extrator OpenCV (ORB + grade de cores LAB)
-internal/observability/ Recorder do pipeline, coletor SSE e ponte OpenTelemetry
-internal/config/      Helpers de env
-migrations/           SQL de criação e evolução do schema
-docs/                 Diagramas e visões de arquitetura
+cmd/api/                 Entrypoint e wiring de dependências
+contracts/               AnchorRegistry.sol
+internal/domain/         Entidades e lógica de negócio pura
+internal/usecase/        Workflows de aplicação e ports (interfaces)
+internal/attestation/    Verificação de Android Key Attestation
+internal/handler/        Handlers HTTP, middleware, DTOs, Swagger
+internal/repository/     Adapters PostgreSQL e EVM
+internal/feature/        Extrator OpenCV (ORB + grade de cores LAB)
+internal/observability/  Recorder do pipeline, coletor SSE e ponte OpenTelemetry
+internal/config/         Helpers de env
+migrations/              SQL de criação e evolução do schema
+docs/                    Diagramas e visões de arquitetura
 ```
 
 ## Testes
@@ -268,16 +292,25 @@ docs/                 Diagramas e visões de arquitetura
 Unitários (sem dependências externas):
 
 ```bash
-go test ./...
+go test ./internal/... ./tests/...
+bash scripts/check-coverage.sh
 ```
 
-End-to-end (precisam de Postgres no ar). Suba a infra primeiro e ative
-a build tag `e2e`:
+End-to-end (precisam de Postgres no ar):
 
 ```bash
 docker compose up -d postgres
 go test -tags e2e ./tests/e2e/...
 ```
+
+## Observabilidade
+
+- **Painel ao vivo** em `/observability` (atrás do token de admin): acompanha
+  em tempo real cada etapa do pipeline via SSE, com valores reais, latência por
+  etapa e a decisão de verificação por candidato.
+- **Spans OpenTelemetry** exportados via OTLP/HTTP para o Jaeger. Com
+  `OTEL_EXPORTER_OTLP_ENDPOINT` em branco os spans viram no-op e a API roda
+  normalmente sem o Jaeger.
 
 ## Licença
 

@@ -40,19 +40,6 @@ func (m *mockRepo) Delete(ctx context.Context, hash string) error {
 	return m.deleteFn(ctx, hash)
 }
 
-type mockBlockchain struct {
-	registerHashFn     func(ctx context.Context, contentHash, featureCommitment string) (string, uint64, error)
-	isHashRegisteredFn func(ctx context.Context, hash string) (bool, error)
-}
-
-func (m *mockBlockchain) RegisterHash(ctx context.Context, contentHash, featureCommitment string) (string, uint64, error) {
-	return m.registerHashFn(ctx, contentHash, featureCommitment)
-}
-
-func (m *mockBlockchain) IsHashRegistered(ctx context.Context, hash string) (bool, error) {
-	return m.isHashRegisteredFn(ctx, hash)
-}
-
 // validColorGrid returns a well-formed color grid for signatures used in
 // tests: correct byte length with an arbitrary fill.
 func validColorGrid() []byte {
