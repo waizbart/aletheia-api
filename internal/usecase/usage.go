@@ -77,7 +77,11 @@ func (uc *UsageUseCase) Summary(ctx context.Context, org *domain.Org) (*UsageRep
 	report := &UsageReport{Period: domain.BillingPeriod(at), Plan: org.Plan}
 	// Iterate a fixed list rather than the map so the report is stable and
 	// includes operations with no usage yet.
-	for _, op := range []domain.Operation{domain.OpAttestedCapture, domain.OpVerify} {
+	for _, op := range []domain.Operation{
+		domain.OpAttestedCapture,
+		domain.OpAttestedVideoCapture,
+		domain.OpVerify,
+	} {
 		report.Operations = append(report.Operations, UsageLine{
 			Operation: op,
 			Used:      counts[op],

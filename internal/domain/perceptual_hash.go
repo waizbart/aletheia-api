@@ -22,8 +22,20 @@ func PHash256(content []byte) *[32]byte {
 	if err != nil {
 		return nil
 	}
-	h := pHashFromImage(img)
+	h := PHash256FromImage(img)
 	return &h
+}
+
+// PHash256FromImage hashes an already-decoded frame.
+//
+// The video pipeline needs this: a decoded frame would otherwise have to be
+// re-encoded just to be hashed, and the frame hashes are committed on chain
+// through VideoFeatureCommitment. A value that passed through a lossy encoder
+// would depend on which libjpeg built the binary, so a third party recomputing
+// the commitment elsewhere could get a different answer. Hashing the decoded
+// pixels keeps the commitment bit-reproducible.
+func PHash256FromImage(img image.Image) [32]byte {
+	return pHashFromImage(img)
 }
 
 // PHash256Variants returns four rotation variants (0°, 90°, 180°, 270°) of the
@@ -35,10 +47,10 @@ func PHash256Variants(content []byte) [][32]byte {
 		return nil
 	}
 	out := make([][32]byte, 4)
-	out[0] = pHashFromImage(img)
-	out[1] = pHashFromImage(rotate90(img))
-	out[2] = pHashFromImage(rotate180(img))
-	out[3] = pHashFromImage(rotate270(img))
+	out[0] = PHash256FromImage(img)
+	out[1] = PHash256FromImage(rotate90(img))
+	out[2] = PHash256FromImage(rotate180(img))
+	out[3] = PHash256FromImage(rotate270(img))
 	return out
 }
 

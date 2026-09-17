@@ -125,7 +125,7 @@ func TestUsageUseCase_Summary(t *testing.T) {
 	if report.Period != "2026-08" {
 		t.Errorf("Period = %q, want 2026-08", report.Period)
 	}
-	if len(report.Operations) != 2 {
+	if len(report.Operations) != 3 {
 		t.Fatalf("got %d operations, want every metered operation listed", len(report.Operations))
 	}
 
@@ -141,6 +141,9 @@ func TestUsageUseCase_Summary(t *testing.T) {
 	// see what they are entitled to.
 	if got := byOp[domain.OpVerify]; got.Used != 0 || got.Limit != 10_000 {
 		t.Errorf("verify line = %+v, want used 0 limit 10000", got)
+	}
+	if got := byOp[domain.OpAttestedVideoCapture]; got.Used != 0 || got.Limit != 50 {
+		t.Errorf("video capture line = %+v, want used 0 limit 50", got)
 	}
 }
 
