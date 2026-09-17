@@ -81,11 +81,13 @@ flowchart LR
 
     MODE -- "hash" --> M1["Lookup direto em<br/>certificates.content_hash"]
     MODE -- "arquivo idêntico" --> M2["SHA-256 →<br/>lookup exato"]
-    MODE -- "arquivo modificado<br/>(re-encode, crop leve,<br/>rotação, flip)" --> M3["pHash variants →<br/>LSH bands →<br/>Hamming-256 →<br/>ORB match"]
+    MODE -- "imagem modificada<br/>(re-encode, crop leve,<br/>rotação, flip)" --> M3["pHash variants →<br/>LSH bands →<br/>Hamming-256 →<br/>ORB match"]
+    MODE -- "vídeo recodificado<br/>(mesmo arquivo,<br/>outro encode/fps/escala)" --> M4["32 pHashes de quadro →<br/>LSH bands →<br/>duração + sequência →<br/>ORB no quadro-âncora"]
 
     M1 --> OUT{Match?}
     M2 --> OUT
     M3 --> OUT
+    M4 --> OUT
 
     OUT -- sim --> R1["Certificate<br/>+ tx_hash + registrant"]
     OUT -- não --> R2["certified=false"]
@@ -99,12 +101,24 @@ Diferença prática entre os modos:
   calcula Hamming-256 contra cada sobrevivente e finalmente roda
   `Match` ORB + resíduo de cor contra a grade LAB armazenada no
   certificado.
+- Vídeo recodificado é o caminho mais caro de todos, e por isso os
+  portões são ordenados do barato para o caro: duração, depois
+  concordância da sequência de quadros, e só então — para quem
+  sobreviveu — uma segunda passada de decodificação para extrair o
+  quadro-âncora e rodar ORB nele. Na prática zero ou um candidato por
+  requisição chega ao portão caro.
+- **Recorte de vídeo não verifica.** A unidade certificada é o arquivo
+  inteiro; um trecho é recusado por decisão de produto.
 
 ## Notas operacionais
 
 - A certificação é idempotente. O SHA-256 é a chave única, então
   reenviar o mesmo arquivo devolve sempre 409 e o cliente não precisa
   de controle de retry.
+- Vídeo é medido como `attested_video_capture`, separado da cota de
+  imagem. Sem chave de API, o upload de vídeo para verificação é
+  limitado a 32 MB; com chave, 256 MB. O `GET ?hash=` é irrestrito e
+  serve imagem e vídeo igualmente.
 - O custo de verificação varia muito. `GET ?hash=` é barato.
   Verificação por arquivo de imagem grande pode ser dezenas de vezes
   mais cara por causa da extração ORB e do match por candidato.

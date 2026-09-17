@@ -35,6 +35,10 @@ const (
 	// OpAttestedCapture is the billable one: a hardware-attested capture that
 	// became a certificate.
 	OpAttestedCapture Operation = "attested_capture"
+	// OpAttestedVideoCapture is metered separately from OpAttestedCapture
+	// because a video costs orders of magnitude more to certify: the server
+	// decodes the whole file to sample frames, where an image is decoded once.
+	OpAttestedVideoCapture Operation = "attested_video_capture"
 	// OpVerify is metered but generously free — verification is what makes
 	// certificates worth buying, so it is never the thing that blocks a
 	// customer.
@@ -51,16 +55,19 @@ const Unlimited = -1
 // the operation is not capped; billing still counts it.
 var planQuotas = map[Plan]map[Operation]int{
 	PlanDeveloper: {
-		OpAttestedCapture: 500,
-		OpVerify:          10_000,
+		OpAttestedCapture:      500,
+		OpAttestedVideoCapture: 50,
+		OpVerify:               10_000,
 	},
 	PlanGrowth: {
-		OpAttestedCapture: Unlimited,
-		OpVerify:          Unlimited,
+		OpAttestedCapture:      Unlimited,
+		OpAttestedVideoCapture: Unlimited,
+		OpVerify:               Unlimited,
 	},
 	PlanEnterprise: {
-		OpAttestedCapture: Unlimited,
-		OpVerify:          Unlimited,
+		OpAttestedCapture:      Unlimited,
+		OpAttestedVideoCapture: Unlimited,
+		OpVerify:               Unlimited,
 	},
 }
 

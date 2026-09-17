@@ -13,6 +13,16 @@ const STAGE_LABELS = {
   exact_lookup: "Busca exata por hash",
   lsh_prefilter: "Pré-filtro LSH (candidatos)",
   candidate_matching: "Comparação de candidatos",
+  consume_nonce: "Consumo do desafio (nonce)",
+  load_device: "Carga do dispositivo inscrito",
+  verify_signature: "Verificação da assinatura do dispositivo",
+  video_ingest: "Recepção do vídeo (hash + spill)",
+  video_probe: "Leitura do contêiner de vídeo",
+  video_sample: "Amostragem de quadros",
+  frame_sequence: "Sequência de quadros",
+  duration_check: "Conferência de duração",
+  anchor_match: "Comparação do quadro-âncora",
+  candidate: "Candidato",
 };
 
 // PT-BR labels for stage attributes.
@@ -34,6 +44,42 @@ const ATTR_LABELS = {
   variants: "Variantes",
   candidates: "Candidatos encontrados",
   reason: "Motivo",
+  platform: "Plataforma",
+  attestation_level: "Nível de atestação",
+  status: "Status",
+  issued_at: "Desafio emitido em",
+  payload_bytes: "Payload assinado (bytes)",
+  hamming: "Distância de Hamming",
+  inliers: "Inliers (RANSAC)",
+  min_inliers: "Inliers mínimos",
+  color_mean: "Resíduo de cor (média)",
+  max_color_mean: "Resíduo de cor máximo",
+  color_max: "Resíduo de cor (pior célula)",
+  max_cell_dist: "Resíduo de célula máximo",
+  cells: "Células comparadas",
+  coverage: "Cobertura da área",
+  min_area_coverage: "Cobertura mínima",
+  matched: "Casou?",
+  duration_ms: "Duração (ms)",
+  width: "Largura (px)",
+  height: "Altura (px)",
+  fps: "Quadros por segundo",
+  frame_count: "Quadros no contêiner",
+  frames_sampled: "Quadros amostrados",
+  anchor_index: "Índice do quadro-âncora",
+  anchor_keypoints: "Keypoints do quadro-âncora",
+  anchor_descriptors: "Descritores do quadro-âncora",
+  // Hamming médio entre quadros consecutivos. Valor baixo indica cena
+  // parada, onde a sequência não discrimina e o quadro-âncora decide.
+  seq_entropy: "Variação entre quadros",
+  agreement: "Concordância de quadros",
+  frames_matched: "Quadros casados",
+  min_frame_agreement: "Concordância mínima",
+  ref_duration_ms: "Duração da referência (ms)",
+  cand_duration_ms: "Duração do candidato (ms)",
+  duration_ok: "Duração compatível?",
+  anchor_matched: "Quadro-âncora casou?",
+  media_kind: "Tipo de mídia",
 };
 
 const VERDICT_LABELS = {
@@ -44,7 +90,13 @@ const VERDICT_LABELS = {
   error: "Erro",
 };
 
-const PIPELINE_LABELS = { certify: "Certificação", verify: "Verificação" };
+const PIPELINE_LABELS = {
+  certify: "Certificação",
+  verify: "Verificação",
+  capture: "Captura atestada",
+  certify_video: "Certificação de vídeo",
+  verify_video: "Verificação de vídeo",
+};
 
 const el = (id) => document.getElementById(id);
 

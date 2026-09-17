@@ -14,10 +14,22 @@ type Certificate struct {
 	PHash             *[32]byte
 	Signature         *FeatureSignature
 	FeatureCommitment *[32]byte
-	Registrant        string
-	TxHash            string
-	BlockNumber       uint64
-	CreatedAt         time.Time
+
+	// MediaKind is what the certificate covers. Rows predating video
+	// certification are backfilled to MediaKindImage by migration 009, so this
+	// is never empty on a row read from the database.
+	MediaKind MediaKind
+	// DurationMs is the video's duration. Zero for images.
+	DurationMs int
+	// Video carries the frame sequence and anchor index. Nil for images, and
+	// nil for a video whose feature extraction failed — such a certificate
+	// still verifies by exact SHA-256, exactly as an image does.
+	Video *VideoSignature
+
+	Registrant  string
+	TxHash      string
+	BlockNumber uint64
+	CreatedAt   time.Time
 
 	// OrgID owns the certificate. Empty on rows predating multi-tenancy.
 	OrgID string
@@ -39,6 +51,12 @@ type Certificate struct {
 	// proof needs in order to know which side each sibling sits on.
 	LeafIndex int
 }
+
+// IsVideo reports whether the certificate covers a video rather than an image.
+// The distinction decides which perceptual pipeline may look at it: the two
+// media compute their pHashes in different metric spaces and must never be
+// compared against each other.
+func (c *Certificate) IsVideo() bool { return c != nil && c.MediaKind == MediaKindVideo }
 
 // Attested reports whether the certificate came from a hardware-attested
 // capture rather than a plain upload. This is the distinction that decides how

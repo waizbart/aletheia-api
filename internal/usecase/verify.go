@@ -136,7 +136,7 @@ func (uc *VerifyUseCase) Execute(ctx context.Context, in VerifyInput) (out *Veri
 	}
 
 	candidates, err := observability.Stage(ctx, "lsh_prefilter", func(h observability.StageHandle) ([]*domain.Certificate, error) {
-		c, e := uc.repo.FindCandidatesByPHashes(ctx, phashes, domain.MaxPHashDistance, verifyTopK)
+		c, e := uc.repo.FindCandidatesByPHashes(ctx, phashes, domain.MediaKindImage, domain.MaxPHashDistance, verifyTopK)
 		if e == nil {
 			h.SetAttrs(observability.Attr{Key: "candidates", Value: len(c)})
 		}

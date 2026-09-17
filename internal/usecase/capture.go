@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"time"
 
 	"github.com/waizbart/aletheia-api/internal/domain"
@@ -187,17 +188,40 @@ func (uc *RevokeDeviceUseCase) Execute(ctx context.Context, in RevokeDeviceInput
 // arrives signed by an enrolled device key, bound to a fresh challenge, becomes
 // a certificate.
 type AttestedCaptureUseCase struct {
-	devices DeviceRepository
-	nonces  NonceRepository
-	certify CertifyRunner
-	now     func() time.Time
+	devices      DeviceRepository
+	nonces       NonceRepository
+	certify      CertifyRunner
+	videos       VideoFeatureExtractor
+	certifyVideo VideoCertifyRunner
+	now          func() time.Time
 }
 
-func NewAttestedCaptureUseCase(devices DeviceRepository, nonces NonceRepository, certify CertifyRunner, now func() time.Time) *AttestedCaptureUseCase {
+// NewAttestedCaptureUseCase wires the gated path for both media.
+//
+// The video dependencies are separate rather than hidden behind the image ones
+// because the two paths cannot share a shape: an image is verified against
+// bytes held in memory, and a video is verified against the hash its ingest
+// produced on the way to disk. Passing nil for either leaves video capture
+// unconfigured, which is what a deployment without video support looks like.
+func NewAttestedCaptureUseCase(
+	devices DeviceRepository,
+	nonces NonceRepository,
+	certify CertifyRunner,
+	videos VideoFeatureExtractor,
+	certifyVideo VideoCertifyRunner,
+	now func() time.Time,
+) *AttestedCaptureUseCase {
 	if now == nil {
 		now = time.Now
 	}
-	return &AttestedCaptureUseCase{devices: devices, nonces: nonces, certify: certify, now: now}
+	return &AttestedCaptureUseCase{
+		devices:      devices,
+		nonces:       nonces,
+		certify:      certify,
+		videos:       videos,
+		certifyVideo: certifyVideo,
+		now:          now,
+	}
 }
 
 type AttestedCaptureInput struct {
@@ -207,6 +231,9 @@ type AttestedCaptureInput struct {
 	Signature []byte
 	Metadata  domain.CaptureMetadata
 	Content   io.Reader
+	// MediaKind selects the certification path. Empty means image, which keeps
+	// every existing caller working unchanged.
+	MediaKind domain.MediaKind
 }
 
 // Execute validates the capture end to end and delegates certification.
@@ -226,6 +253,14 @@ func (uc *AttestedCaptureUseCase) Execute(ctx context.Context, in AttestedCaptur
 	}
 	if in.Content == nil {
 		return nil, fmt.Errorf("capture: content is required")
+	}
+
+	mediaKind := in.MediaKind
+	if mediaKind == "" {
+		mediaKind = domain.MediaKindImage
+	}
+	if !domain.ValidMediaKind(mediaKind) {
+		return nil, fmt.Errorf("capture: unsupported media kind %q", mediaKind)
 	}
 
 	nonce, err := observability.Stage(ctx, "consume_nonce", func(h observability.StageHandle) (*domain.CaptureNonce, error) {
@@ -267,6 +302,10 @@ func (uc *AttestedCaptureUseCase) Execute(ctx context.Context, in AttestedCaptur
 		return nil, fmt.Errorf("capture: %w", err)
 	}
 
+	if mediaKind == domain.MediaKindVideo {
+		return uc.captureVideo(ctx, in, nonce, device)
+	}
+
 	content, err := io.ReadAll(in.Content)
 	if err != nil {
 		return nil, fmt.Errorf("capture: reading content: %w", err)
@@ -297,6 +336,80 @@ func (uc *AttestedCaptureUseCase) Execute(ctx context.Context, in AttestedCaptur
 	capturedAt := in.Metadata.CapturedAt.UTC()
 	return uc.certify.Execute(ctx, CertifyInput{
 		Content:    bytes.NewReader(content),
+		Registrant: in.OrgID,
+		OrgID:      in.OrgID,
+		DeviceID:   device.ID,
+		CapturedAt: &capturedAt,
+	})
+}
+
+// captureVideo is the video half of Execute, reached once the nonce is spent
+// and the device is known.
+//
+// The video is taken in before its signature is checked, which the image path
+// does not have to do. There is no way around it: the signature covers the
+// content hash, and the hash is a by-product of streaming the bytes to the
+// disk the decoder needs. The spill is bounded by the extractor's size ceiling
+// and its decode semaphore, so an attacker who already holds a valid key and a
+// fresh nonce gains one bounded disk write over the image path.
+func (uc *AttestedCaptureUseCase) captureVideo(
+	ctx context.Context,
+	in AttestedCaptureInput,
+	nonce *domain.CaptureNonce,
+	device *domain.Device,
+) (*CertifyOutput, error) {
+	if uc.videos == nil || uc.certifyVideo == nil {
+		return nil, fmt.Errorf("capture: video certification is not configured")
+	}
+
+	handle, err := observability.Stage(ctx, "video_ingest", func(h observability.StageHandle) (VideoHandle, error) {
+		src, e := uc.videos.Ingest(ctx, in.Content)
+		if e == nil {
+			h.SetAttrs(
+				observability.Attr{Key: "content_hash", Value: src.ContentHash()},
+				observability.Attr{Key: "size_bytes", Value: src.Probe().SizeBytes},
+			)
+		}
+		return src, e
+	})
+	if err != nil {
+		return nil, fmt.Errorf("capture: %w", err)
+	}
+	defer func() {
+		if cerr := handle.Close(); cerr != nil {
+			log.Printf("capture: releasing video handle: %v", cerr)
+		}
+	}()
+
+	probe := handle.Probe()
+	if err := observability.StageVoid(ctx, "video_probe", func(h observability.StageHandle) error {
+		h.SetAttrs(
+			observability.Attr{Key: "duration_ms", Value: probe.DurationMs},
+			observability.Attr{Key: "width", Value: probe.Width},
+			observability.Attr{Key: "height", Value: probe.Height},
+			observability.Attr{Key: "fps", Value: probe.FPS},
+			observability.Attr{Key: "frame_count", Value: probe.FrameCount},
+		)
+		return probe.Validate()
+	}); err != nil {
+		return nil, fmt.Errorf("capture: %w", err)
+	}
+
+	contentHash := handle.ContentHash()
+	if err := observability.StageVoid(ctx, "verify_signature", func(h observability.StageHandle) error {
+		payload := domain.CaptureSigningPayload(contentHash, nonce.Value, in.Metadata)
+		h.SetAttrs(observability.Attr{Key: "payload_bytes", Value: len(payload)})
+		return domain.VerifyCaptureSignature(device.PublicKey, payload, in.Signature)
+	}); err != nil {
+		if errors.Is(err, domain.ErrCaptureSignature) {
+			return nil, fmt.Errorf("capture: %w", domain.ErrCaptureSignature)
+		}
+		return nil, fmt.Errorf("capture: %w", err)
+	}
+
+	capturedAt := in.Metadata.CapturedAt.UTC()
+	return uc.certifyVideo.Execute(ctx, CertifyVideoInput{
+		Handle:     handle,
 		Registrant: in.OrgID,
 		OrgID:      in.OrgID,
 		DeviceID:   device.ID,

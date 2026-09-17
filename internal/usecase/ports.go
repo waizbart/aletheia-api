@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/waizbart/aletheia-api/internal/domain"
@@ -10,7 +11,11 @@ import (
 type CertificateRepository interface {
 	Save(ctx context.Context, cert *domain.Certificate) error
 	FindByHash(ctx context.Context, contentHash string) (*domain.Certificate, error)
-	FindCandidatesByPHashes(ctx context.Context, phashes [][32]byte, maxDistance, topK int) ([]*domain.Certificate, error)
+	// FindCandidatesByPHashes returns perceptual candidates of the given media
+	// kind only. The partition is load-bearing: image and video pHashes are not
+	// comparable, so a query that ignored it would return noise and, worse,
+	// could answer an image upload with a video's certificate.
+	FindCandidatesByPHashes(ctx context.Context, phashes [][32]byte, mediaKind domain.MediaKind, maxDistance, topK int) ([]*domain.Certificate, error)
 	Delete(ctx context.Context, contentHash string) error
 }
 
@@ -40,6 +45,69 @@ type AnchorRepository interface {
 	// reconcile a root that may yet be mined, rather than discovering it on
 	// chain with nothing in the database referring to it.
 	SaveUnconfirmedAnchor(ctx context.Context, a *domain.Anchor) error
+}
+
+// VideoHandle is a video that has been taken in and is ready to decode. The
+// caller owns it and must Close it exactly once: that releases the decoder's
+// temporary file and the extractor's decode slot, neither of which any other
+// code can reach.
+type VideoHandle interface {
+	ContentHash() string
+	// Probe reports what the container header claims. It is metadata and may be
+	// wrong, so it decides whether to reject the video early — never what the
+	// certificate asserts.
+	Probe() domain.VideoProbe
+	Close() error
+}
+
+// VideoReduction is what a whole video collapses to: the sequence of frame
+// hashes, plus one anchor frame carrying the ordinary image signature.
+type VideoReduction struct {
+	// Signature is the frame sequence and the chosen anchor index. Persisted.
+	Signature *domain.VideoSignature
+	// Anchor is the anchor frame's ORB descriptors and color grid. Persisted in
+	// the certificate's ordinary feature columns, which is what lets the image
+	// matcher run against video unchanged.
+	Anchor *domain.FeatureSignature
+	// AnchorPHash is the anchor frame's perceptual hash. Persisted, and indexed
+	// in phash_bands like any image.
+	AnchorPHash [32]byte
+	// AnchorFrame is the anchor frame encoded as PNG. It is transient: verify
+	// feeds it to FeatureExtractor.Match as the candidate image and then drops
+	// it. Nothing about a video is ever stored.
+	AnchorFrame []byte
+}
+
+// VideoFeatureExtractor decodes video. It is split in two so the expensive half
+// can be refused before it runs: Ingest reads only the container header, which
+// is enough to reject an overlong or oversized video and to run the duplicate
+// check, and Reduce is what actually decodes frames.
+type VideoFeatureExtractor interface {
+	// Ingest streams r to wherever the decoder can reach it, hashing as it
+	// goes, and reads the container header. The reader is never held in memory:
+	// a video is far too large for that, and the hash has to be known before the
+	// decode is paid for.
+	Ingest(ctx context.Context, r io.Reader) (VideoHandle, error)
+	// Reduce decodes the sampled frames and builds the stored signature.
+	Reduce(ctx context.Context, h VideoHandle) (*VideoReduction, error)
+	// FrameAt returns the candidate's frame at one sample slot, PNG encoded.
+	//
+	// Verify needs it because the slot it has to compare is the reference's
+	// stored anchor index, not the slot this candidate would have picked for
+	// itself. Sharpness ranking is a pure function of the decoded frames, but
+	// the frames differ between a source and its re-encode, so the two sides
+	// can rank them differently. Reading the slot off the certificate removes
+	// the guesswork, which is also why anchor_index is inside the commitment.
+	FrameAt(ctx context.Context, h VideoHandle, slot int) ([]byte, error)
+}
+
+// VideoCertifyRunner is the certification step an attested video capture
+// delegates to once the device, the signature and the container have been
+// checked. It takes an already-ingested handle rather than a reader: the hash
+// the signature was verified against came out of that ingest, and re-reading
+// the bytes to get it again is not affordable for a video.
+type VideoCertifyRunner interface {
+	Execute(ctx context.Context, in CertifyVideoInput) (*CertifyOutput, error)
 }
 
 type FeatureExtractor interface {

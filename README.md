@@ -1,9 +1,9 @@
 # Aletheia API
 
-API de proveniência de mídia. Fotos capturadas por um dispositivo inscrito
-carregam prova criptográfica de que uma chave em hardware seguro assinou
-**exatamente aqueles bytes** naquele momento — e essa prova sobrevive à
-internet estragar a imagem.
+API de proveniência de mídia. Fotos e vídeos capturados por um dispositivo
+inscrito carregam prova criptográfica de que uma chave em hardware seguro
+assinou **exatamente aqueles bytes** naquele momento — e essa prova sobrevive à
+internet estragar a mídia.
 
 Duas metades deliberadamente assimétricas:
 
@@ -40,6 +40,12 @@ assinou exatamente aqueles bytes em resposta a um desafio emitido pelo servidor
 — e que os bytes não mudaram desde então. Quando um certificado é contestado, o
 sistema diz exatamente qual organização e qual dispositivo respondem por ele.
 
+**A unidade é o arquivo inteiro.** Um vídeo é certificado como um todo. Um
+**recorte** de um vídeo certificado **não** verifica, e isso é decisão de
+produto, não limitação acidental: é justamente ela que mantém o pipeline de
+vídeo simples, porque quadros podem ser comparados slot a slot sem nenhum
+alinhamento temporal. Se recortes precisarem valer um dia, o desenho muda.
+
 **Não prova.** Que a cena era verdadeira, nem que o sensor gerou aqueles bytes.
 Quem segura a chave é o app, então um app comprometido num dispositivo genuíno
 pode assinar bytes que a câmera nunca viu; as verificações encarecem chegar
@@ -59,18 +65,39 @@ de IA.
    Google, confere o desafio, exige chave gerada em hardware, bootloader
    travado e app assinado por chave conhecida — e então fixa a chave pública.
 3. **Captura.** O dispositivo assina `SHA-256(bytes) ‖ nonce ‖ metadados` com
-   aquela chave e envia a imagem (`POST /captures`). O servidor confere a
-   assinatura contra a chave fixada, extrai pHash + descritores ORB + grade de
-   cores LAB via OpenCV e persiste o certificado. **Nenhuma imagem é
-   armazenada.**
+   aquela chave e envia a mídia (`POST /captures`). O payload assinado é o
+   mesmo para imagem e vídeo, então o SDK não muda: o tipo é decidido pelo
+   `Content-Type` da parte enviada. O servidor confere a assinatura contra a
+   chave fixada e extrai as features.
+
+   **Imagem:** pHash + descritores ORB + grade de cores LAB via OpenCV.
+
+   **Vídeo:** o arquivo é recebido em streaming para um temporário em disco (o
+   decodificador precisa de um caminho, não de bytes), amostrado em 32 quadros
+   por posição proporcional e reduzido a uma sequência de pHashes mais um
+   quadro-âncora que carrega a assinatura de imagem completa. O temporário é
+   removido ao fim da requisição.
+
+   **Nenhuma mídia é armazenada**, em nenhum dos dois casos.
 4. **Ancoragem.** Um worker em segundo plano agrupa os certificados pendentes
    sob uma única raiz Merkle e a grava na blockchain. Cada certificado guarda
    sua prova de inclusão, então qualquer um confere contra a raiz on-chain sem
    confiar nesta API.
 5. **Verificação.** Por hash (`GET /certificates/verify?hash=`) ou por upload
-   (`POST /certificates/verify`). O upload tenta primeiro o match exato por
-   SHA-256 e, na ausência, cai num caminho de similaridade visual usando LSH em
-   `phash_bands`, Hamming-256 e recheque ORB + resíduo de cor.
+   (`POST /certificates/verify`). Os dois aceitam imagem e vídeo, e quem
+   verifica não precisa dizer qual é.
+
+   O upload tenta primeiro o match exato por SHA-256 e, na ausência, cai num
+   caminho de similaridade. Para **imagem**: LSH em `phash_bands`, Hamming-256
+   e recheque ORB + resíduo de cor. Para **vídeo**: LSH com todos os 32 quadros
+   amostrados, depois os portões baratos — duração e concordância da sequência
+   de quadros, com folga de um slot para absorver deriva de recodificação — e
+   só então o portão caro, que é o recheque ORB + cor no quadro-âncora **da
+   referência**, lido do `anchor_index` do certificado.
+
+   A busca é particionada por tipo de mídia: pHashes de quadro passam por um
+   redimensionamento que imagens não recebem, então os dois vivem em espaços
+   métricos diferentes e nunca são comparados entre si.
 
 ## Pré-requisitos
 
@@ -190,11 +217,22 @@ POST /captures                     multipart/form-data
 GET  /usage                        -> consumo do período corrente
 ```
 
-Tipos aceitos: JPEG, PNG, GIF, WebP, BMP, TIFF. Limite de 100 MB.
+Imagens: JPEG, PNG, GIF, WebP, BMP, TIFF — limite de 100 MB.
+Vídeos: MP4, QuickTime, WebM, Matroska, AVI, MPEG, 3GPP — limite de 256 MB
+(`VIDEO_MAX_UPLOAD_BYTES`) e 2 min de duração (`VIDEO_MAX_DURATION_MS`).
+
+Um upload declarado como vídeo tem os bytes conferidos contra assinaturas de
+contêiner conhecidas antes de chegar ao decodificador.
+
+Vídeo é medido como `attested_video_capture`, separado de `attested_capture`,
+porque decodificar um arquivo inteiro custa ordens de magnitude mais que
+decodificar uma imagem.
 
 Erros de captura: `402` (cota do plano esgotada), `403` (assinatura não
 confere, ou dispositivo revogado), `404` (dispositivo não inscrito), `409`
-(desafio já usado, ou conteúdo já certificado).
+(desafio já usado, ou conteúdo já certificado), `413` (acima do limite de
+upload), `415` (tipo não aceito, ou bytes que não correspondem ao tipo
+declarado), `422` (vídeo acima dos limites de duração ou resolução).
 
 ### Verificação (público)
 
@@ -232,6 +270,14 @@ O campo `attested` é o mais importante para quem verifica: distingue uma
 captura de câmera de um upload comum. `anchor` só aparece depois que o worker
 ancora o lote.
 
+`media_kind` é `image` ou `video`; certificados emitidos antes da certificação
+de vídeo reportam `image`. Certificados de vídeo trazem também `duration_ms`,
+`frame_count` e `anchor_index` — os três entram no commitment, então quem
+verifica precisa deles para recomputá-lo sem confiar nesta API.
+
+Sem chave de API o limite de upload de vídeo é 32 MB; com chave, 256 MB.
+Verificar segue gratuito nos dois casos, e o `GET ?hash=` é irrestrito.
+
 ### Remover certificado (admin)
 
 ```
@@ -261,6 +307,9 @@ tem o valor padrão que tem. As essenciais:
 | `ANDROID_ALLOWED_PACKAGES` | Application IDs autorizados a inscrever |
 | `ANDROID_SIGNATURE_DIGESTS` | SHA-256 hex dos certificados de assinatura do APK |
 | `ALLOW_UNATTESTED_CERTIFY` | Reabre `POST /certificates`. Padrão `false` |
+| `VIDEO_MAX_UPLOAD_BYTES` | Teto de bytes de um upload de vídeo. Padrão 256 MB |
+| `VIDEO_MAX_CONCURRENCY` | Decodificações simultâneas. Em branco, metade dos núcleos |
+| `VIDEO_TEMP_DIR` | Onde ficam os temporários do decodificador. Em branco, `os.TempDir()` |
 
 ## Contrato
 
@@ -280,7 +329,8 @@ internal/usecase/        Workflows de aplicação e ports (interfaces)
 internal/attestation/    Verificação de Android Key Attestation
 internal/handler/        Handlers HTTP, middleware, DTOs, Swagger
 internal/repository/     Adapters PostgreSQL e EVM
-internal/feature/        Extrator OpenCV (ORB + grade de cores LAB)
+internal/feature/        Extratores OpenCV: imagem (ORB + grade de cores LAB)
+                         e vídeo (amostragem de quadros + quadro-âncora)
 internal/observability/  Recorder do pipeline, coletor SSE e ponte OpenTelemetry
 internal/config/         Helpers de env
 migrations/              SQL de criação e evolução do schema
@@ -296,12 +346,32 @@ go test ./internal/... ./tests/...
 bash scripts/check-coverage.sh
 ```
 
+Integração (precisam de OpenCV; nunca rodam no CI):
+
+```bash
+go test -tags integration ./tests/feature/...
+
+docker compose up -d postgres
+DATABASE_URL=... go test -tags integration ./tests/repository/...
+```
+
 End-to-end (precisam de Postgres no ar):
 
 ```bash
 docker compose up -d postgres
-go test -tags e2e ./tests/e2e/...
+E2E=1 go test -tags e2e ./tests/e2e/...
 ```
+
+Os limiares de vídeo são calibrados por testes que **reportam** em vez de
+barrar, do mesmo jeito que `MaxColorMean` e `MinAreaCoverage` foram derivados:
+
+```bash
+go test -tags integration -v -run TestVideoCalibration ./tests/feature/...
+go test -tags integration -v -run TestVideoExtractor_AnchorFrameMatches ./tests/feature/...
+```
+
+Os números medidos ficam nos comentários das constantes que eles justificam,
+em `internal/domain/video.go`.
 
 ## Observabilidade
 

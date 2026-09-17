@@ -37,4 +37,23 @@ var (
 	// ErrUnauthorized reports a caller whose credentials do not grant access to
 	// the requested resource.
 	ErrUnauthorized = errors.New("unauthorized")
+
+	// ErrVideoTooLarge reports an upload past the byte ceiling. It is raised
+	// while the body is still streaming, because a limit that only applies
+	// after the bytes have landed is not a limit.
+	ErrVideoTooLarge = errors.New("video exceeds the upload size limit")
+
+	// ErrVideoTooLong reports a video past the duration ceiling. Decode cost is
+	// linear in duration and certification is synchronous, so the ceiling is
+	// what keeps a request inside its deadline.
+	ErrVideoTooLong = errors.New("video exceeds the duration limit")
+
+	// ErrVideoResolution reports a frame size past the pixel ceiling, which
+	// exists to blunt decoder bombs.
+	ErrVideoResolution = errors.New("video exceeds the resolution limit")
+
+	// ErrVideoUndecodable reports a container the decoder could not open or one
+	// that yielded no frames. It deliberately does not distinguish the two:
+	// both mean there is nothing to certify.
+	ErrVideoUndecodable = errors.New("video could not be decoded")
 )

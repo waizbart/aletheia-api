@@ -47,6 +47,17 @@ func main() {
 	extractor := feature.NewOpenCVExtractor()
 	defer extractor.Close()
 
+	// The byte ceiling belongs to the adapter because it applies while the body
+	// is still streaming; the duration and resolution ceilings are policy and
+	// live in domain.VideoProbe.Validate. The decode semaphore is separate from
+	// MAX_CONCURRENT_REQUESTS, which bounds requests rather than decodes.
+	videoExtractor := feature.NewVideoExtractor(feature.VideoLimits{
+		MaxBytes:    int64(config.EnvIntOrDefault("VIDEO_MAX_UPLOAD_BYTES", 256<<20)),
+		TempDir:     config.EnvOrDefault("VIDEO_TEMP_DIR", ""),
+		Concurrency: config.EnvIntOrDefault("VIDEO_MAX_CONCURRENCY", 0),
+	})
+	defer videoExtractor.Close()
+
 	certRepo := repository.NewPostgresCertificateRepo(db)
 	anchorRepo := repository.NewPostgresAnchorRepo(db)
 	anchorSvc, err := repository.NewAnchorServiceFromEnv()
@@ -95,6 +106,8 @@ func main() {
 
 	certifyUC := usecase.NewCertifyUseCase(certRepo, extractor)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor)
+	certifyVideoUC := usecase.NewCertifyVideoUseCase(certRepo, videoExtractor)
+	verifyVideoUC := usecase.NewVerifyVideoUseCase(certRepo, videoExtractor, extractor)
 	deleteUC := usecase.NewDeleteUseCase(certRepo)
 	thumbnailUC := usecase.NewThumbnailUseCase(certRepo, extractor)
 
@@ -102,7 +115,8 @@ func main() {
 	issueNonceUC := usecase.NewIssueNonceUseCase(nonceRepo, nonceTTL, time.Now)
 	enrollUC := usecase.NewEnrollDeviceUseCase(deviceRepo, nonceRepo, attestations, time.Now)
 	revokeDeviceUC := usecase.NewRevokeDeviceUseCase(deviceRepo, time.Now)
-	captureUC := usecase.NewAttestedCaptureUseCase(deviceRepo, nonceRepo, certifyUC, time.Now)
+	captureUC := usecase.NewAttestedCaptureUseCase(
+		deviceRepo, nonceRepo, certifyUC, videoExtractor, certifyVideoUC, time.Now)
 
 	anchorUC := usecase.NewAnchorUseCase(
 		anchorRepo, anchorSvc,
@@ -130,7 +144,7 @@ func main() {
 		log.Println("WARNING: ALLOW_UNATTESTED_CERTIFY is on — POST /certificates accepts uploads with no capture-time provenance")
 	}
 
-	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC, usageUC, allowUnattested)
+	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, verifyVideoUC, deleteUC, usageUC, allowUnattested)
 	captureHandler := handler.NewCaptureHandler(issueNonceUC, enrollUC, revokeDeviceUC, captureUC, usageUC, usageUC)
 	adminHandler := handler.NewAdminHandler(createOrgUC, issueKeyUC, revokeKeyUC)
 

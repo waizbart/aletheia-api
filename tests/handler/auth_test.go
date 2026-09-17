@@ -129,6 +129,7 @@ func TestRouteGuards(t *testing.T) {
 		&mockVerifier{executeFn: func(_ context.Context, _ usecase.VerifyInput) (*usecase.VerifyOutput, error) {
 			return &usecase.VerifyOutput{Certified: false}, nil
 		}},
+		nil,
 		&mockDeleter{},
 		nil,
 		true,

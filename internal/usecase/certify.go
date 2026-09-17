@@ -132,6 +132,7 @@ func (uc *CertifyUseCase) Execute(ctx context.Context, in CertifyInput) (out *Ce
 		PHash:             phash,
 		Signature:         signature,
 		FeatureCommitment: &commitment,
+		MediaKind:         domain.MediaKindImage,
 		Registrant:        in.Registrant,
 		CreatedAt:         time.Now().UTC(),
 		OrgID:             in.OrgID,
