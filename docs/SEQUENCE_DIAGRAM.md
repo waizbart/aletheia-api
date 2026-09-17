@@ -84,6 +84,85 @@ Pontos relevantes:
 - Falha na extração ORB é logada mas não aborta a certificação; nesses casos o
   `featureCommitment` vira o digest determinístico do bundle vazio.
 
+## Captura atestada de vídeo (`POST /captures`, parte `file` de vídeo)
+
+A diferença que importa: o vídeo é **recebido antes** da assinatura ser
+conferida. Não há como evitar — a assinatura cobre o hash do conteúdo, e o hash
+é subproduto de escrever os bytes no disco de que o decodificador precisa.
+
+```mermaid
+sequenceDiagram
+    actor SDK as SDK / app de câmera
+    participant H as CaptureHandler
+    participant UC as AttestedCaptureUseCase
+    participant VX as VideoExtractor
+    participant CV as CertifyVideoUseCase
+    participant DB as Postgres
+
+    SDK->>H: POST /captures (file: video/mp4, signature, nonce, ...)
+    H->>H: detecta o tipo pela parte, confere magic bytes
+    H->>H: quota.Check(attested_video_capture)
+    H->>UC: Execute(MediaKind: video)
+    UC->>UC: consome o nonce (antes da assinatura, de propósito)
+    UC->>UC: carrega o dispositivo inscrito
+    UC->>VX: Ingest(reader)
+    VX->>VX: streaming para temporário + SHA-256 na passagem
+    VX->>VX: lê o header do contêiner (sem decodificar quadro)
+    VX-->>UC: handle{contentHash, probe}
+    UC->>UC: probe.Validate() — duração e resolução
+    UC->>UC: VerifyCaptureSignature(hash do handle)
+    UC->>CV: Execute(handle)
+    CV->>DB: FindByHash — duplicata?
+    CV->>VX: Reduce(handle)
+    VX->>VX: passada única, Grab pula quadros não amostrados
+    VX->>VX: 32 pHashes + escore Laplaciano + escolha da âncora
+    VX->>VX: ORB + grade LAB no quadro-âncora
+    VX-->>CV: reduction
+    CV->>DB: Save (mesma tabela certificates)
+    CV-->>UC: certificado
+    UC->>UC: defer handle.Close() — remove o temporário
+    UC-->>H: certificado
+    H->>H: quota.Record(attested_video_capture)
+    H-->>SDK: 201 + certificado
+```
+
+## Verificação de vídeo (`POST /certificates/verify`, parte de vídeo)
+
+Portões ordenados do barato para o caro: só quem sobrevive à duração e à
+sequência paga a segunda passada de decodificação.
+
+```mermaid
+sequenceDiagram
+    actor V as Verificador
+    participant H as CertificateHandler
+    participant UC as VerifyVideoUseCase
+    participant VX as VideoExtractor
+    participant IX as OpenCVExtractor
+    participant DB as Postgres
+
+    V->>H: POST /certificates/verify (file: video/mp4)
+    H->>H: teto por tipo (32 MB anônimo, 256 MB autenticado)
+    H->>UC: Execute
+    UC->>VX: Ingest — hash + probe
+    UC->>UC: probe.Validate()
+    UC->>DB: FindByHash (caminho exato)
+    alt casou exatamente
+        DB-->>UC: certificado
+        UC-->>V: 200 (via sha256, sem decodificar quadro)
+    else
+        UC->>VX: Reduce — 32 pHashes
+        UC->>DB: FindCandidatesByPHashes(todos os 32, media_kind=video)
+        loop cada candidato
+            UC->>UC: duração dentro da tolerância?
+            UC->>UC: concordância da sequência >= 0.70? (folga de 1 slot)
+            UC->>VX: FrameAt(anchor_index DA REFERÊNCIA)
+            UC->>IX: Compute(quadro) e Match(assinatura armazenada)
+            UC->>UC: DecideVideo — sem o portão por célula
+        end
+        UC-->>V: 200 com o certificado, ou 404
+    end
+```
+
 ## Ancoragem em lote (worker)
 
 ```mermaid

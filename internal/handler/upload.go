@@ -5,6 +5,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/waizbart/aletheia-api/internal/domain"
 )
@@ -28,6 +29,13 @@ const (
 
 	// sniffLen is what http.DetectContentType reads.
 	sniffLen = 512
+
+	// videoReadDeadline bounds how long a single video upload may take to
+	// arrive. The server leaves ReadTimeout unset on purpose — for 100 MB
+	// uploads and for the dashboard's SSE stream — so without a per-request
+	// deadline a slow client could hold a decode slot open indefinitely.
+	// Generous enough for 256 MB on an unremarkable connection.
+	videoReadDeadline = 5 * time.Minute
 )
 
 var allowedImageTypes = map[string]bool{
@@ -91,6 +99,17 @@ func parseMediaUpload(w http.ResponseWriter, r *http.Request, limits uploadLimit
 		ceiling = limits.maxVideoBytes
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, ceiling)
+
+	if limits.maxVideoBytes > 0 {
+		// Set before anything is read, which means before the media kind is
+		// known: the kind lives in the part header. Applying it to every
+		// upload on a route that accepts video is the honest approximation.
+		//
+		// The error is ignored deliberately. This is hardening, not
+		// correctness, and a ResponseWriter that cannot carry a deadline —
+		// httptest's recorder, for one — must not fail the request over it.
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(videoReadDeadline))
+	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {

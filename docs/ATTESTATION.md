@@ -143,7 +143,72 @@ WHERE consumed_at IS NULL AND expires_at > now` rather than a read-then-write,
 because two concurrent captures presenting the same nonce would both pass a
 separate existence check.
 
+## Video
+
+Video is certified as a **whole file**. One certificate covers one video, and a
+cut of a certified video does not verify. That is a product decision, not an
+accident: it is what lets frames be compared slot for slot with no temporal
+alignment, and reversing it would change the design rather than relax a
+threshold.
+
+The signed payload is unchanged. `CaptureSigningPayload` covers a bare SHA-256
+hex string, so it is media agnostic and the SDK needs no new code path: the
+kind is decided by the `Content-Type` of the uploaded part.
+
+A video is reduced to 32 frames sampled at the midpoint of each proportional
+slot, plus one anchor frame chosen by sharpness that carries the ordinary image
+signature. Sampling by proportion of the frame count is frame-rate invariant
+within a file, so a 30-to-25fps transcode still compares like with like.
+
+### The video commitment
+
+A verifier recomputes it from the certificate and the video alone:
+
+```
+sha256( "aletheia-video-commitment-v1"
+     || uint16BE(anchor_index)
+     || uint16BE(frame_count)
+     || uint32BE(duration_ms)
+     || FeatureCommitment(anchor_phash, anchor_signature)
+     || sha256(concat(frame_phashes)) )
+```
+
+The domain tag keeps a video commitment out of reach of an image one even when
+the anchor frame's features are exactly some image's. The three scalars are in
+there because without them an operator could rewrite `anchor_index` or
+`duration_ms` and the Merkle proof would still verify — which, in a registry
+whose entire value is tamper-evidence, is a hole.
+
+Frame hashes are computed on decoded pixels, never on a re-encode of them. A
+JPEG round trip would make the committed value depend on which libjpeg built
+the binary, and the commitment has to be reproducible off this machine.
+
 ## Known limits
+
+**Video does not detect a localized alteration of the anchor frame.** The
+per-cell colour ceiling that catches a logo swap or a sticker on an image does
+not transfer: the frame compared sits at the same nominal instant but comes off
+a different frame grid, so anything moving lands in different cells. Measured
+across legitimate re-encodes of one clip, the worst cell ranges from 0.9 (same
+size, re-encoded) to 137.4 (frame rate 25 to 15) while every other gate passes
+comfortably — the value tracks temporal misalignment, not alteration, and
+faster motion pushes it higher without bound. A ceiling above that range would
+reject nothing real, so the gate is omitted for video and said out loud here.
+The per-image colour mean still applies and still catches a global tone or
+colour edit. A percentile residual instead of a maximum would fix it properly,
+and needs an extractor change plus a recalibration of the image path.
+
+**A locked-off shot is weak evidence.** When every frame is near-identical the
+frame sequence carries no information and two different recordings of the same
+static scene both score highly. The anchor match is what discriminates, which
+is the same property the image pipeline has for two photographs of one scene.
+The mean distance between consecutive frames is reported in the trace so the
+case is diagnosable rather than merely surprising.
+
+**libavcodec is a large C surface fed untrusted bytes.** The duration and
+resolution ceilings reduce exposure but do not remove it: reading the container
+header already instantiates a decoder context, so no in-process mitigation is
+complete. See `docs/OPERATIONS.md` for what to do about it.
 
 **Rephotography.** An attested camera pointed at a screen showing a generated
 image produces a hardware-signed certificate for a fake. Nobody has solved
