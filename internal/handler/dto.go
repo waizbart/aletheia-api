@@ -16,6 +16,18 @@ type certDTO struct {
 	BlockNumber uint64 `json:"block_number"`
 	CreatedAt   string `json:"created_at"`
 
+	// MediaKind tells a verifier what the certificate covers. Rows predating
+	// video certification report "image".
+	MediaKind string `json:"media_kind"`
+	// DurationMs is present only for video whose features were extracted.
+	DurationMs int `json:"duration_ms,omitempty"`
+	// FrameCount is how many frames the video was reduced to. Present only for
+	// video, and a verifier needs it to recompute the commitment.
+	FrameCount int `json:"frame_count,omitempty"`
+	// AnchorIndex is which sampled frame carries the stored image signature.
+	// Present only for video, and also part of the commitment.
+	AnchorIndex *int `json:"anchor_index,omitempty"`
+
 	// Attested says whether the content was captured through an enrolled
 	// device or merely uploaded. It is the single most important field for a
 	// verifier deciding how much the certificate is worth.
@@ -48,6 +60,16 @@ func toCertDTO(c *domain.Certificate) certDTO {
 		CreatedAt:   c.CreatedAt.Format(time.RFC3339),
 		Attested:    c.Attested(),
 		DeviceID:    c.DeviceID,
+		MediaKind:   string(c.MediaKind),
+	}
+	if dto.MediaKind == "" {
+		dto.MediaKind = string(domain.MediaKindImage)
+	}
+	if c.Video != nil {
+		dto.DurationMs = c.DurationMs
+		dto.FrameCount = c.Video.FrameCount()
+		anchor := c.Video.AnchorIndex
+		dto.AnchorIndex = &anchor
 	}
 	if c.CapturedAt != nil {
 		dto.CapturedAt = c.CapturedAt.Format(time.RFC3339Nano)

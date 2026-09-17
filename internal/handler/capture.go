@@ -223,7 +223,23 @@ func (h *CaptureHandler) handleRevoke(w http.ResponseWriter, r *http.Request) {
 func (h *CaptureHandler) handleCapture(w http.ResponseWriter, r *http.Request) {
 	org := OrgFromContext(r.Context())
 
-	if err := h.quota.Check(r.Context(), org, domain.OpAttestedCapture); err != nil {
+	// The upload is parsed before the allowance is checked, which is the
+	// reverse of everywhere else. The media kind lives in the multipart part
+	// header, so there is no way to know which allowance applies until the
+	// part has been read. The size ceilings still bound what an over-quota
+	// tenant can make the server buffer.
+	file, kind, ok := parseMediaUpload(w, r, attestedLimits())
+	if !ok {
+		return
+	}
+	defer file.Close()
+
+	op := domain.OpAttestedCapture
+	if kind == domain.MediaKindVideo {
+		op = domain.OpAttestedVideoCapture
+	}
+
+	if err := h.quota.Check(r.Context(), org, op); err != nil {
 		if errors.Is(err, domain.ErrQuotaExceeded) {
 			writeError(w, http.StatusPaymentRequired, err.Error())
 			return
@@ -231,12 +247,6 @@ func (h *CaptureHandler) handleCapture(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not check the plan allowance")
 		return
 	}
-
-	file, ok := parseMediaUpload(w, r)
-	if !ok {
-		return
-	}
-	defer file.Close()
 
 	signature, err := base64.StdEncoding.DecodeString(r.FormValue("signature"))
 	if err != nil {
@@ -261,7 +271,8 @@ func (h *CaptureHandler) handleCapture(w http.ResponseWriter, r *http.Request) {
 			OSVersion:  r.FormValue("os_version"),
 			AppVersion: r.FormValue("app_version"),
 		},
-		Content: file,
+		Content:   file,
+		MediaKind: kind,
 	})
 	if err != nil {
 		writeCaptureError(w, err)
@@ -269,7 +280,7 @@ func (h *CaptureHandler) handleCapture(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Counted only now, so a rejected capture is never billed.
-	if err := h.quota.Record(r.Context(), org.ID, domain.OpAttestedCapture); err != nil {
+	if err := h.quota.Record(r.Context(), org.ID, op); err != nil {
 		// The capture is certified; losing a usage count must not fail it.
 		logUsageFailure(err)
 	}
@@ -291,6 +302,8 @@ func writeCaptureError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "device not enrolled")
 	case errors.Is(err, domain.ErrAlreadyCertified):
 		writeError(w, http.StatusConflict, err.Error())
+	case isMediaError(err):
+		writeMediaError(w, err)
 	default:
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	}

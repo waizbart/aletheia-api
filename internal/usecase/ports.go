@@ -90,6 +90,24 @@ type VideoFeatureExtractor interface {
 	Ingest(ctx context.Context, r io.Reader) (VideoHandle, error)
 	// Reduce decodes the sampled frames and builds the stored signature.
 	Reduce(ctx context.Context, h VideoHandle) (*VideoReduction, error)
+	// FrameAt returns the candidate's frame at one sample slot, PNG encoded.
+	//
+	// Verify needs it because the slot it has to compare is the reference's
+	// stored anchor index, not the slot this candidate would have picked for
+	// itself. Sharpness ranking is a pure function of the decoded frames, but
+	// the frames differ between a source and its re-encode, so the two sides
+	// can rank them differently. Reading the slot off the certificate removes
+	// the guesswork, which is also why anchor_index is inside the commitment.
+	FrameAt(ctx context.Context, h VideoHandle, slot int) ([]byte, error)
+}
+
+// VideoCertifyRunner is the certification step an attested video capture
+// delegates to once the device, the signature and the container have been
+// checked. It takes an already-ingested handle rather than a reader: the hash
+// the signature was verified against came out of that ingest, and re-reading
+// the bytes to get it again is not affordable for a video.
+type VideoCertifyRunner interface {
+	Execute(ctx context.Context, in CertifyVideoInput) (*CertifyOutput, error)
 }
 
 type FeatureExtractor interface {

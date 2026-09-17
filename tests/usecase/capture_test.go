@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -111,12 +112,14 @@ func (m *mockAttestationVerifier) Verify(ctx context.Context, req domain.Attesta
 }
 
 type mockCertifyRunner struct {
-	in usecase.CertifyInput
-	fn func(ctx context.Context, in usecase.CertifyInput) (*usecase.CertifyOutput, error)
+	in    usecase.CertifyInput
+	calls int
+	fn    func(ctx context.Context, in usecase.CertifyInput) (*usecase.CertifyOutput, error)
 }
 
 func (m *mockCertifyRunner) Execute(ctx context.Context, in usecase.CertifyInput) (*usecase.CertifyOutput, error) {
 	m.in = in
+	m.calls++
 	if m.fn == nil {
 		return &usecase.CertifyOutput{Certificate: &domain.Certificate{ID: "cert-1"}}, nil
 	}
@@ -416,12 +419,16 @@ func TestRevokeDeviceUseCase(t *testing.T) {
 // --- AttestedCaptureUseCase -------------------------------------------------
 
 type captureFixture struct {
-	uc      *usecase.AttestedCaptureUseCase
-	runner  *mockCertifyRunner
-	nonce   domain.CaptureNonce
-	sig     signer
-	content []byte
-	md      domain.CaptureMetadata
+	uc           *usecase.AttestedCaptureUseCase
+	devices      *mockDeviceRepo
+	nonces       *mockNonceRepo
+	runner       *mockCertifyRunner
+	videos       *mockVideoExtractor
+	certifyVideo *mockVideoCertifyRunner
+	nonce        domain.CaptureNonce
+	sig          signer
+	content      []byte
+	md           domain.CaptureMetadata
 }
 
 func newCaptureFixture(t *testing.T, mutate func(*mockDeviceRepo, *mockNonceRepo)) captureFixture {
@@ -445,12 +452,18 @@ func newCaptureFixture(t *testing.T, mutate func(*mockDeviceRepo, *mockNonceRepo
 	}
 
 	runner := &mockCertifyRunner{}
+	videos := &mockVideoExtractor{}
+	certifyVideo := &mockVideoCertifyRunner{}
 	return captureFixture{
-		uc:      usecase.NewAttestedCaptureUseCase(devices, nonces, runner, fixedClock()),
-		runner:  runner,
-		nonce:   nonce,
-		sig:     sig,
-		content: []byte("image bytes"),
+		uc:           usecase.NewAttestedCaptureUseCase(devices, nonces, runner, videos, certifyVideo, fixedClock()),
+		devices:      devices,
+		nonces:       nonces,
+		runner:       runner,
+		videos:       videos,
+		certifyVideo: certifyVideo,
+		nonce:        nonce,
+		sig:          sig,
+		content:      []byte("image bytes"),
 		md: domain.CaptureMetadata{
 			CapturedAt: captureNow, Model: "Pixel 8", OSVersion: "14", AppVersion: "1.0.0",
 		},
@@ -650,7 +663,7 @@ func TestCaptureUseCases_DefaultClock(t *testing.T) {
 		t.Error("CreatedAt should come from the wall clock, not the zero value")
 	}
 
-	capture := usecase.NewAttestedCaptureUseCase(&mockDeviceRepo{}, nonces, &mockCertifyRunner{}, nil)
+	capture := usecase.NewAttestedCaptureUseCase(&mockDeviceRepo{}, nonces, &mockCertifyRunner{}, nil, nil, nil)
 	if _, err := capture.Execute(context.Background(), usecase.AttestedCaptureInput{
 		OrgID: "org-1", DeviceID: "d", Signature: []byte{1}, Nonce: nonce.Value, Content: strings.NewReader("x"),
 	}); !errors.Is(err, domain.ErrDeviceNotFound) {
@@ -801,5 +814,208 @@ func TestEnrollDeviceUseCase_PropagatesKeyLookupFailure(t *testing.T) {
 	}
 	if len(devices.saved) != 0 {
 		t.Fatal("an unreadable registry must not fall through to enrolment")
+	}
+}
+
+// --- attested video capture -------------------------------------------------
+
+func videoCaptureInput(t *testing.T, f captureFixture, contentHash string) usecase.AttestedCaptureInput {
+	t.Helper()
+	in := f.input(t)
+	in.MediaKind = domain.MediaKindVideo
+	in.Signature = f.sig.sign(t, domain.CaptureSigningPayload(contentHash, f.nonce.Value, f.md))
+	return in
+}
+
+func TestAttestedCaptureUseCase_Video_HappyPath(t *testing.T) {
+	const contentHash = "video-hash"
+	f := newCaptureFixture(t, nil)
+	handle := &mockVideoHandle{hash: contentHash, probe: validVideoProbe()}
+	f.videos.ingestFn = func(_ context.Context, _ io.Reader) (usecase.VideoHandle, error) {
+		return handle, nil
+	}
+
+	out, err := f.uc.Execute(context.Background(), videoCaptureInput(t, f, contentHash))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out == nil || out.Certificate == nil {
+		t.Fatal("expected a certificate")
+	}
+	if f.runner.calls != 0 {
+		t.Error("the image certifier ran for a video capture")
+	}
+	if f.certifyVideo.calls != 1 {
+		t.Fatalf("video certifier ran %d time(s), want 1", f.certifyVideo.calls)
+	}
+	if f.certifyVideo.lastInput.Handle != handle {
+		t.Error("the handle the signature was checked against was not the one passed on")
+	}
+	if f.certifyVideo.lastInput.DeviceID == "" || f.certifyVideo.lastInput.OrgID != "org-1" {
+		t.Errorf("provenance not forwarded: %+v", f.certifyVideo.lastInput)
+	}
+	// The handle is released once certification returns, not before.
+	if handle.closes != 1 {
+		t.Errorf("handle closed %d time(s), want exactly 1", handle.closes)
+	}
+}
+
+// The signature covers the hash the ingest produced. A device that signed
+// different bytes must be refused even though the nonce was spent.
+func TestAttestedCaptureUseCase_Video_RejectsAWrongSignature(t *testing.T) {
+	f := newCaptureFixture(t, nil)
+	handle := &mockVideoHandle{hash: "actual-hash", probe: validVideoProbe()}
+	f.videos.ingestFn = func(_ context.Context, _ io.Reader) (usecase.VideoHandle, error) {
+		return handle, nil
+	}
+
+	// Signed over a different hash than the one ingest computed.
+	in := videoCaptureInput(t, f, "some-other-hash")
+
+	_, err := f.uc.Execute(context.Background(), in)
+	if !errors.Is(err, domain.ErrCaptureSignature) {
+		t.Fatalf("error = %v, want ErrCaptureSignature", err)
+	}
+	if f.certifyVideo.calls != 0 {
+		t.Error("certification ran despite a failed signature")
+	}
+	if handle.closes != 1 {
+		t.Errorf("handle closed %d time(s), want exactly 1", handle.closes)
+	}
+}
+
+func TestAttestedCaptureUseCase_Video_RejectsBadContainers(t *testing.T) {
+	tests := []struct {
+		name    string
+		probe   domain.VideoProbe
+		wantErr error
+	}{
+		{"overlong", domain.VideoProbe{DurationMs: domain.MaxVideoDurationMs + 1, Width: 640, Height: 480}, domain.ErrVideoTooLong},
+		{"oversized frames", domain.VideoProbe{DurationMs: 1000, Width: 7680, Height: 4320}, domain.ErrVideoResolution},
+		{"undecodable", domain.VideoProbe{}, domain.ErrVideoUndecodable},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newCaptureFixture(t, nil)
+			handle := &mockVideoHandle{hash: "h", probe: tt.probe}
+			f.videos.ingestFn = func(_ context.Context, _ io.Reader) (usecase.VideoHandle, error) {
+				return handle, nil
+			}
+
+			_, err := f.uc.Execute(context.Background(), videoCaptureInput(t, f, "h"))
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			// Rejected before the signature was even checked, because it is the
+			// cheaper test of the two.
+			if f.certifyVideo.calls != 0 {
+				t.Error("certification ran for a rejected container")
+			}
+			if handle.closes != 1 {
+				t.Errorf("handle closed %d time(s), want exactly 1", handle.closes)
+			}
+		})
+	}
+}
+
+func TestAttestedCaptureUseCase_Video_SurfacesIngestFailure(t *testing.T) {
+	f := newCaptureFixture(t, nil)
+	f.videos.ingestFn = func(_ context.Context, _ io.Reader) (usecase.VideoHandle, error) {
+		return nil, domain.ErrVideoTooLarge
+	}
+
+	_, err := f.uc.Execute(context.Background(), videoCaptureInput(t, f, "h"))
+	if !errors.Is(err, domain.ErrVideoTooLarge) {
+		t.Fatalf("error = %v, want ErrVideoTooLarge", err)
+	}
+}
+
+func TestAttestedCaptureUseCase_RejectsAnUnknownMediaKind(t *testing.T) {
+	f := newCaptureFixture(t, nil)
+	in := f.input(t)
+	in.MediaKind = domain.MediaKind("audio")
+
+	if _, err := f.uc.Execute(context.Background(), in); err == nil {
+		t.Fatal("expected an unsupported media kind to be refused")
+	}
+}
+
+// A deployment without video support must refuse video rather than panic on a
+// nil dependency.
+func TestAttestedCaptureUseCase_Video_RefusedWhenUnconfigured(t *testing.T) {
+	f := newCaptureFixture(t, nil)
+	unconfigured := usecase.NewAttestedCaptureUseCase(
+		f.devices, f.nonces, f.runner, nil, nil, fixedClock())
+
+	_, err := unconfigured.Execute(context.Background(), videoCaptureInput(t, f, "h"))
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("error = %v, want a not-configured failure", err)
+	}
+}
+
+// An empty media kind is the image path, which is what keeps every existing
+// caller and every already-shipped SDK working unchanged.
+func TestAttestedCaptureUseCase_EmptyMediaKindIsImage(t *testing.T) {
+	f := newCaptureFixture(t, nil)
+	in := f.input(t)
+	in.MediaKind = ""
+
+	if _, err := f.uc.Execute(context.Background(), in); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f.runner.calls != 1 {
+		t.Errorf("image certifier ran %d time(s), want 1", f.runner.calls)
+	}
+	if f.certifyVideo.calls != 0 {
+		t.Error("the video certifier ran for an image capture")
+	}
+}
+
+func TestAttestedCaptureUseCase_SurfacesAReadFailure(t *testing.T) {
+	f := newCaptureFixture(t, nil)
+	in := f.input(t)
+	in.Content = errReader{}
+
+	if _, err := f.uc.Execute(context.Background(), in); err == nil {
+		t.Fatal("expected the read failure to surface")
+	}
+}
+
+// A key that will not parse is not a signature mismatch, and collapsing the two
+// would report a broken enrolment as a forged capture.
+func TestAttestedCaptureUseCase_Video_MalformedDeviceKey(t *testing.T) {
+	f := newCaptureFixture(t, func(devices *mockDeviceRepo, _ *mockNonceRepo) {
+		devices.findFn = func(_ context.Context, id string) (*domain.Device, error) {
+			return &domain.Device{
+				ID: id, OrgID: "org-1", Status: domain.DeviceActive,
+				PublicKey: []byte("not a DER public key"), Platform: domain.PlatformAndroid,
+			}, nil
+		}
+	})
+	f.videos.ingestFn = func(_ context.Context, _ io.Reader) (usecase.VideoHandle, error) {
+		return &mockVideoHandle{hash: "h", probe: validVideoProbe()}, nil
+	}
+
+	_, err := f.uc.Execute(context.Background(), videoCaptureInput(t, f, "h"))
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if errors.Is(err, domain.ErrCaptureSignature) {
+		t.Error("a malformed key was reported as a signature mismatch")
+	}
+}
+
+// A handle that will not release is logged, not propagated: the capture is
+// already certified and a temp-file problem is not the caller's business.
+func TestAttestedCaptureUseCase_Video_ToleratesCloseFailure(t *testing.T) {
+	f := newCaptureFixture(t, nil)
+	handle := &mockVideoHandle{hash: "h", probe: validVideoProbe(), closeErr: errors.New("busy")}
+	f.videos.ingestFn = func(_ context.Context, _ io.Reader) (usecase.VideoHandle, error) {
+		return handle, nil
+	}
+
+	if _, err := f.uc.Execute(context.Background(), videoCaptureInput(t, f, "h")); err != nil {
+		t.Fatalf("a Close failure must not fail the capture: %v", err)
 	}
 }

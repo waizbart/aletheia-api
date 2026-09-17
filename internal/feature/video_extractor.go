@@ -42,19 +42,9 @@ func (e *VideoExtractor) Reduce(ctx context.Context, h usecase.VideoHandle) (*us
 		return nil, fmt.Errorf("video reduce: handle did not come from this extractor")
 	}
 
-	frameCount := src.probe.FrameCount
-	if frameCount <= 0 {
-		// A fragmented or streamed container reports nothing useful in its
-		// header. Counting costs a full decode pass, which is why it only
-		// happens when the header left no alternative.
-		counted, err := measureFrameCount(src.path)
-		if err != nil {
-			return nil, err
-		}
-		frameCount = counted
-	}
-	if frameCount <= 0 {
-		return nil, fmt.Errorf("video reduce: container has no frames: %w", domain.ErrVideoUndecodable)
+	frameCount, err := resolveFrameCount(src)
+	if err != nil {
+		return nil, err
 	}
 
 	capture, err := openCapture(src.path)
@@ -164,6 +154,72 @@ func selectAnchor(k *anchorKeeper) (int, *domain.FeatureSignature, []byte, error
 		lastErr = domain.ErrVideoUndecodable
 	}
 	return 0, nil, nil, fmt.Errorf("video reduce: no usable anchor frame: %w", lastErr)
+}
+
+// FrameAt re-decodes the video and returns one sampled frame as PNG.
+//
+// It costs a second forward pass, which is why verify only reaches for it after
+// the cheap gates — the frame sequence and the duration — have already accepted
+// the candidate. In practice that is zero or one candidate per request.
+func (e *VideoExtractor) FrameAt(ctx context.Context, h usecase.VideoHandle, slot int) ([]byte, error) {
+	src, ok := h.(*videoSource)
+	if !ok || src == nil || src.path == "" {
+		return nil, fmt.Errorf("video frame: handle did not come from this extractor")
+	}
+
+	frameCount, err := resolveFrameCount(src)
+	if err != nil {
+		return nil, err
+	}
+
+	indexes := domain.SampleFrameIndexes(frameCount)
+	if slot < 0 || slot >= len(indexes) {
+		return nil, fmt.Errorf("video frame: slot %d is outside the %d sampled slots", slot, len(indexes))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("video frame: %w", err)
+	}
+
+	capture, err := openCapture(src.path)
+	if err != nil {
+		return nil, err
+	}
+	defer capture.Close()
+
+	if target := indexes[slot]; target > 0 {
+		capture.Grab(target)
+	}
+
+	frame := gocv.NewMat()
+	defer frame.Close()
+	if !capture.Read(&frame) || frame.Empty() {
+		return nil, fmt.Errorf("video frame: slot %d did not decode: %w", slot, domain.ErrVideoUndecodable)
+	}
+
+	resized := resizeBGR(frame, domain.ResizeMax)
+	defer resized.Close()
+
+	return encodeFramePNG(resized)
+}
+
+// resolveFrameCount trusts the container header when it says anything useful
+// and counts frames when it does not.
+func resolveFrameCount(src *videoSource) (int, error) {
+	if src.probe.FrameCount > 0 {
+		return src.probe.FrameCount, nil
+	}
+
+	// A fragmented or streamed container reports nothing useful in its header.
+	// Counting costs a full decode pass, which is why it only happens when the
+	// header left no alternative.
+	counted, err := measureFrameCount(src.path)
+	if err != nil {
+		return 0, err
+	}
+	if counted <= 0 {
+		return 0, fmt.Errorf("video: container has no frames: %w", domain.ErrVideoUndecodable)
+	}
+	return counted, nil
 }
 
 // measureFrameCount counts decodable frames, bounded by maxDecodeFrames.

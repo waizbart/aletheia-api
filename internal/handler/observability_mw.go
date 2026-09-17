@@ -30,7 +30,10 @@ func ObservabilityMiddleware(f *observability.Factory) func(http.Handler) http.H
 // everything else are skipped so the trace ring only holds real pipelines.
 func shouldTrace(r *http.Request) bool {
 	p := r.URL.Path
-	if p == "/certificates" {
+	// A path missing from this list gets the nop recorder and disappears from
+	// the dashboard with no error anywhere, which is how attested capture came
+	// to be untraced despite setting a pipeline name.
+	if p == "/certificates" || p == "/captures" {
 		return r.Method == http.MethodPost
 	}
 	return p == "/certificates/verify"
