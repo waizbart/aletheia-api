@@ -119,16 +119,31 @@ paths:
   /captures:
     post:
       tags: [Captures]
-      summary: Certifica uma captura atestada
+      summary: Certifica uma captura atestada (imagem ou vídeo)
       description: |
-        Recebe a imagem junto da assinatura que o dispositivo produziu
+        Recebe a mídia junto da assinatura que o dispositivo produziu
         sobre `SHA-256(bytes) ‖ nonce ‖ metadados`, confere contra a
         chave fixada na inscrição e certifica.
 
         Os bytes assinados precisam ser exatamente os bytes enviados —
-        um reencode no app invalida a assinatura. Extrai pHash,
-        descritores ORB e grade de cores LAB; **nenhuma imagem é
-        armazenada**.
+        um reencode no app invalida a assinatura. O payload assinado é
+        o mesmo para imagem e vídeo, então o SDK não muda: o tipo é
+        decidido pelo `Content-Type` da parte `file`.
+
+        **Imagem.** Extrai pHash, descritores ORB e grade de cores LAB.
+
+        **Vídeo.** O arquivo é recebido em streaming para um arquivo
+        temporário (o decodificador precisa de um caminho em disco),
+        amostrado em 32 quadros por posição proporcional, e reduzido a
+        uma sequência de pHashes mais um quadro-âncora que carrega a
+        assinatura de imagem completa. O temporário é removido ao fim
+        da requisição.
+
+        **Nenhuma mídia é armazenada**, em nenhum dos dois casos.
+
+        Vídeo é medido como `attested_video_capture`, separado de
+        `attested_capture`, porque decodificar um arquivo inteiro custa
+        ordens de magnitude mais que decodificar uma imagem.
 
         A ancoragem on-chain acontece depois, em lote, num worker em
         segundo plano. O certificado já é válido e verificável antes
@@ -145,7 +160,9 @@ paths:
               file:
                 contentType: >-
                   image/jpeg, image/png, image/gif, image/webp,
-                  image/bmp, image/tiff
+                  image/bmp, image/tiff, video/mp4, video/quicktime,
+                  video/webm, video/x-matroska, video/x-msvideo,
+                  video/avi, video/mpeg, video/3gpp
       responses:
         "201":
           description: Captura certificada.
@@ -170,6 +187,8 @@ paths:
               examples:
                 cota:
                   value: { error: "quota check: plan quota exceeded: attested_capture allowance of 500 for plan \"developer\" is spent" }
+                cotaVideo:
+                  value: { error: "quota check: plan quota exceeded: attested_video_capture allowance of 50 for plan \"developer\" is spent" }
         "403":
           description: Assinatura não confere, ou dispositivo revogado.
           content:
@@ -194,13 +213,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "413":
-          description: Arquivo excede o limite de upload (100 MB).
+          description: |
+            Arquivo excede o limite de upload: 100 MB para imagem,
+            256 MB para vídeo (`VIDEO_MAX_UPLOAD_BYTES`).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "415":
           $ref: "#/components/responses/UnsupportedMedia"
+        "422":
+          description: |
+            Vídeo recusado pelos limites de contêiner: duração acima de
+            `VIDEO_MAX_DURATION_MS` (2 min por padrão) ou resolução acima
+            de 3840x2160.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                duracao:
+                  value: { error: "video exceeds the duration limit" }
+                resolucao:
+                  value: { error: "video exceeds the resolution limit" }
 
   /devices:
     post:
@@ -543,9 +578,13 @@ paths:
 
     post:
       tags: [Certificates]
-      summary: Verifica certificação por upload de imagem
+      summary: Verifica certificação por upload de imagem ou vídeo
       description: |
-        Aceita um upload de imagem e tenta dois caminhos em sequência:
+        Aceita um upload e escolhe o pipeline pelo `Content-Type` da
+        parte `file`. O verificador não precisa dizer qual é nem saber
+        a diferença.
+
+        **Imagem.** Dois caminhos em sequência:
 
         1. Match exato por `SHA-256`.
         2. Extrai pHash em várias rotações/flips, faz prefilter LSH
@@ -554,9 +593,29 @@ paths:
            nos melhores `top-K`, roda re-check com ORB + resíduo de
            cor contra a grade de cores armazenada no certificado.
 
-        O custo do segundo caminho cresce com o tamanho da base e da
-        imagem enviada, então prefira o `GET ?hash=` quando o
-        cliente já tem o hash.
+        **Vídeo.** Mesma estrutura, na granularidade do arquivo inteiro:
+
+        1. Match exato por `SHA-256`.
+        2. Amostra 32 quadros por posição proporcional, faz prefilter
+           LSH com **todos** eles, e para cada candidato aplica em
+           ordem os portões baratos — duração e concordância da
+           sequência de quadros, com folga de um slot para absorver
+           deriva de recodificação — antes do portão caro, que é o
+           match ORB + cor no **quadro-âncora da referência**, lido do
+           campo `anchor_index` do certificado.
+
+        > **Recorte não verifica.** A unidade certificada é o arquivo
+        > inteiro. Um trecho cortado de um vídeo certificado é recusado,
+        > por decisão de produto e não por limitação acidental.
+
+        Numa cena parada o portão de sequência não discrimina — todos os
+        quadros são quase idênticos — e quem decide é o quadro-âncora.
+
+        Sem chave de API o limite de upload de vídeo é 32 MB; com chave,
+        256 MB. Verificar segue gratuito nos dois casos. O custo do
+        segundo caminho cresce com o tamanho da base e da mídia enviada,
+        então prefira o `GET ?hash=` quando o cliente já tem o hash — ele
+        é irrestrito e serve imagem e vídeo igualmente.
       operationId: verifyByFile
       requestBody:
         required: true
@@ -568,7 +627,9 @@ paths:
               file:
                 contentType: >-
                   image/jpeg, image/png, image/gif, image/webp,
-                  image/bmp, image/tiff
+                  image/bmp, image/tiff, video/mp4, video/quicktime,
+                  video/webm, video/x-matroska, video/x-msvideo,
+                  video/avi, video/mpeg, video/3gpp
       responses:
         "200":
           description: Conteúdo certificado (match exato ou por similaridade).
@@ -593,13 +654,27 @@ paths:
                 nao_certificado:
                   $ref: "#/components/examples/VerifyMiss"
         "413":
-          description: Arquivo excede o limite de upload (100 MB).
+          description: |
+            Arquivo excede o limite de upload: 100 MB para imagem,
+            32 MB para vídeo sem chave de API, 256 MB para vídeo
+            autenticado.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "415":
           $ref: "#/components/responses/UnsupportedMedia"
+        "422":
+          description: |
+            Vídeo recusado pelos limites de contêiner: duração ou
+            resolução acima do permitido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                duracao:
+                  value: { error: "video exceeds the duration limit" }
         "500":
           description: Erro interno (leitura, extração ou banco).
           content:
@@ -730,15 +805,30 @@ components:
 
     UnsupportedMedia:
       description: >-
-        Tipo MIME não aceito. Aceitos: `image/jpeg`, `image/png`,
-        `image/gif`, `image/webp`, `image/bmp`, `image/tiff`.
+        Tipo MIME não aceito, ou bytes que não correspondem ao tipo
+        declarado. Imagens: `image/jpeg`, `image/png`, `image/gif`,
+        `image/webp`, `image/bmp`, `image/tiff`. Vídeos: `video/mp4`,
+        `video/quicktime`, `video/webm`, `video/x-matroska`,
+        `video/x-msvideo`, `video/avi`, `video/mpeg`, `video/3gpp`.
+
+
+        Um upload declarado como vídeo tem os bytes conferidos contra
+        assinaturas de contêiner conhecidas antes de chegar ao
+        decodificador. `POST /certificates` — a rota legada não atestada
+        — segue aceitando só imagem.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
           examples:
             tipo_invalido:
-              value: { error: "only image files are accepted" }
+              value: { error: "only image and video files are accepted" }
+            bytes_nao_conferem:
+              value: { error: "the uploaded bytes are not a recognised video container" }
+            rota_somente_imagem:
+              value: { error: "this endpoint accepts image files only" }
+            nao_decodificavel:
+              value: { error: "video could not be decoded" }
 
   schemas:
     Sha256Hex:
@@ -791,6 +881,7 @@ components:
         - block_number
         - created_at
         - attested
+        - media_kind
       properties:
         id:
           type: string
@@ -807,6 +898,41 @@ components:
             valor recebido em `X-Registrant`, que nunca foi evidência
             de nada.
           example: "9f1c8d2e-4b6a-4c3d-8e7f-1a2b3c4d5e6f"
+        media_kind:
+          type: string
+          enum: [image, video]
+          description: |
+            O que o certificado cobre. Certificados emitidos antes da
+            certificação de vídeo reportam `image`.
+
+            O campo também particiona a busca perceptual: pHashes de
+            quadro são calculados depois de um redimensionamento que
+            imagens não recebem, então os dois vivem em espaços
+            métricos diferentes e nunca são comparados entre si.
+          example: "video"
+        duration_ms:
+          type: integer
+          minimum: 0
+          description: |
+            Duração do vídeo. Presente apenas em vídeo cuja extração de
+            features teve êxito, e coberta pelo commitment.
+          example: 8000
+        frame_count:
+          type: integer
+          minimum: 0
+          description: |
+            Quantos quadros o vídeo foi reduzido. Presente apenas em
+            vídeo, e coberto pelo commitment.
+          example: 32
+        anchor_index:
+          type: integer
+          minimum: 0
+          description: |
+            Qual dos quadros amostrados carrega a assinatura de imagem
+            armazenada. Presente apenas em vídeo, e coberto pelo
+            commitment — é o slot que a verificação compara, e não o que
+            o candidato escolheria para si.
+          example: 17
         attested:
           type: boolean
           description: |
@@ -1006,7 +1132,7 @@ components:
             properties:
               operation:
                 type: string
-                enum: [attested_capture, verify]
+                enum: [attested_capture, attested_video_capture, verify]
               used: { type: integer, example: 137 }
               limit:
                 type: integer

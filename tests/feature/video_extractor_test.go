@@ -38,6 +38,11 @@ import (
 // ORB, low enough spatial frequency to survive both a rescale and lossy
 // compression. A bright square moves with t so consecutive frames differ, which
 // is what stops the sequence gate from being vacuous.
+//
+// The square's edges are anti-aliased over a band a couple of pixels wide.
+// That is not cosmetic: a real lens has optical blur and the encoder
+// low-passes, so a hard step from 40 to 250 across one pixel boundary is
+// sharper than anything a camera produces.
 func videoScene(width, height int, t float64) []byte {
 	const blocksX, blocksY = 16, 12
 	buf := make([]byte, width*height*3)
@@ -45,6 +50,9 @@ func videoScene(width, height int, t float64) []byte {
 	sqSize := 0.18
 	sqX := 0.05 + t*(1-sqSize-0.1)
 	sqY := 0.30 + 0.25*t
+
+	// Feather the edge over roughly two pixels of the shorter side.
+	feather := 2.0 / float64(height)
 
 	for y := 0; y < height; y++ {
 		v := (float64(y) + 0.5) / float64(height)
@@ -56,21 +64,41 @@ func videoScene(width, height int, t float64) []byte {
 			// A cheap deterministic hash of the block coordinates. Distinct
 			// neighbouring values give ORB real corners to find.
 			seed := (bx * 73856093) ^ (by * 19349663)
-			b := byte(40 + (seed&0x7fffffff)%180)
-			g := byte(40 + ((seed>>7)&0x7fffffff)%180)
-			r := byte(40 + ((seed>>13)&0x7fffffff)%180)
+			b := float64(40 + (seed&0x7fffffff)%180)
+			g := float64(40 + ((seed>>7)&0x7fffffff)%180)
+			r := float64(40 + ((seed>>13)&0x7fffffff)%180)
 
-			if u >= sqX && u < sqX+sqSize && v >= sqY && v < sqY+sqSize {
-				b, g, r = 250, 250, 250
+			if alpha := edgeRamp(u, sqX, sqX+sqSize, feather) * edgeRamp(v, sqY, sqY+sqSize, feather); alpha > 0 {
+				b = b*(1-alpha) + 250*alpha
+				g = g*(1-alpha) + 250*alpha
+				r = r*(1-alpha) + 250*alpha
 			}
 
 			off := (y*width + x) * 3
-			buf[off+0] = b
-			buf[off+1] = g
-			buf[off+2] = r
+			buf[off+0] = byte(b + 0.5)
+			buf[off+1] = byte(g + 0.5)
+			buf[off+2] = byte(r + 0.5)
 		}
 	}
 	return buf
+}
+
+// edgeRamp is how much of a [lo,hi] band covers p, ramping linearly across a
+// feather-wide transition on each side.
+func edgeRamp(p, lo, hi, feather float64) float64 {
+	if p <= lo-feather || p >= hi+feather {
+		return 0
+	}
+	a := 1.0
+	if p < lo+feather {
+		a = (p - (lo - feather)) / (2 * feather)
+	}
+	if p > hi-feather {
+		if b := ((hi + feather) - p) / (2 * feather); b < a {
+			a = b
+		}
+	}
+	return max(0, min(1, a))
 }
 
 // videoSceneShifted paints an unrelated scene, used as the negative control.

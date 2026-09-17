@@ -392,8 +392,17 @@ func TestDurationWithinTolerance(t *testing.T) {
 }
 
 func TestDecideVideo(t *testing.T) {
-	matched := domain.MatchDecision{Matched: true}
-	unmatched := domain.MatchDecision{Matched: false}
+	good := domain.MatchDecision{
+		Matched:   true,
+		Inliers:   domain.MinInliers,
+		ColorMean: domain.MaxColorMean,
+		Coverage:  domain.MinAreaCoverage,
+	}
+	withColorMax := func(v float64) domain.MatchDecision {
+		d := good
+		d.ColorMax = v
+		return d
+	}
 
 	tests := []struct {
 		name       string
@@ -402,12 +411,28 @@ func TestDecideVideo(t *testing.T) {
 		durationOK bool
 		want       bool
 	}{
-		{"all gates pass", matched, 1, true, true},
-		{"agreement exactly at the gate", matched, domain.MinFrameAgreement, true, true},
-		{"anchor failed", unmatched, 1, true, false},
-		{"agreement below the gate", matched, domain.MinFrameAgreement - 0.01, true, false},
-		{"duration out of tolerance", matched, 1, false, false},
-		{"everything failed", unmatched, 0, false, false},
+		{"every gate exactly at its limit", good, domain.MinFrameAgreement, true, true},
+		{"too few inliers", domain.MatchDecision{Inliers: domain.MinInliers - 1, Coverage: 1}, 1, true, false},
+		{
+			name:       "colour mean above the ceiling",
+			anchor:     domain.MatchDecision{Inliers: 40, ColorMean: domain.MaxColorMean + 0.1, Coverage: 1},
+			agreement:  1,
+			durationOK: true,
+		},
+		{
+			name:       "coverage below the floor",
+			anchor:     domain.MatchDecision{Inliers: 40, Coverage: domain.MinAreaCoverage - 0.01},
+			agreement:  1,
+			durationOK: true,
+		},
+		{"agreement below the gate", good, domain.MinFrameAgreement - 0.01, true, false},
+		{"duration out of tolerance", good, 1, false, false},
+		{"everything failed", domain.MatchDecision{}, 0, false, false},
+		// The per-cell ceiling is deliberately not applied to video: it tracks
+		// how far the two frame grids drifted apart rather than whether the
+		// picture changed, and legitimate frame rate conversions measure past
+		// 137 with every other gate comfortably satisfied.
+		{"a spiking cell does not reject a video", withColorMax(200), 1, true, true},
 	}
 
 	for _, tt := range tests {
@@ -417,6 +442,14 @@ func TestDecideVideo(t *testing.T) {
 				t.Errorf("DecideVideo = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// The image verdict keeps the per-cell ceiling. Loosening video must not
+// loosen the path it was calibrated for.
+func TestDecide_StillAppliesThePerCellCeiling(t *testing.T) {
+	if domain.Decide(40, 1, domain.MaxCellDist+1, 1) {
+		t.Error("the image verdict accepted a cell past MaxCellDist")
 	}
 }
 

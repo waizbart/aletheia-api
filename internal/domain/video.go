@@ -283,16 +283,52 @@ func DurationWithinTolerance(refMs, candMs int) bool {
 	return diff <= tolerance
 }
 
-// DecideVideo is the video verdict: the anchor frame must pass the ordinary
-// image gates, and the frame sequence and duration must agree.
+// DecideVideo is the video verdict.
 //
-// The sequence gate is necessary but not sufficient. In a locked-off shot every
-// frame is near-identical, so agreement carries no information and two
-// different recordings of the same static scene both score highly; the anchor's
-// ORB and color match is what discriminates. The image pipeline has the same
+// It composes the anchor frame's gates itself rather than reading
+// MatchDecision.Matched, because one of the image gates does not transfer:
+// MaxCellDist, the per-cell colour ceiling, is deliberately omitted.
+//
+// That gate exists to catch a localized alteration — a logo swap, a sticker, a
+// small paint-over — which barely moves the per-image mean but spikes a few
+// cells. It works for images because the candidate is the same picture. In
+// video it is not: the frame compared sits at the same nominal instant but
+// comes off a different frame grid, so anything moving lands in different
+// cells. Measured worst cell across legitimate re-encodes of one clip, with
+// every other gate passing comfortably (see
+// TestVideoExtractor_AnchorFrameMatchesAcrossReencoding):
+//
+//	re-encode, same size ........  0.9
+//	H.264 transcode .............  9.2
+//	frame rate 25 to 24 .........  14.3
+//	rescale to 1280x960 .........  23.9
+//	rescale to 320x240 ..........  46.2
+//	rescale + frame rate ........ 114.6
+//	frame rate 25 to 30 ......... 120.9
+//	frame rate 25 to 15 ......... 137.4
+//
+// The pattern is the mechanism: 25 to 24 nearly aligns the two grids and scores
+// 14, while 25 to 15 maximally misaligns them and scores 137. The value tracks
+// temporal misalignment, not alteration, and faster motion pushes it higher
+// without bound. A threshold set above that range would reject nothing real.
+//
+// So the honest position, which docs/ATTESTATION.md states outright: video
+// certification does not detect a localized alteration of the anchor frame.
+// MaxColorMean still applies and still catches a global tone or colour edit —
+// the worst legitimate re-encode measures 4.56 against the 8.0 ceiling. The
+// proper fix is a percentile residual instead of a maximum, which needs a
+// change to the extractor and a recalibration of the image path, and is left
+// as follow-up rather than smuggled in here.
+//
+// The sequence gate, in turn, is necessary but not sufficient. In a locked-off
+// shot every frame is near-identical, so agreement carries no information and
+// two different recordings of the same static scene both score highly; the
+// anchor's ORB match is what discriminates. The image pipeline has the same
 // property for two photographs of one scene.
 func DecideVideo(anchor MatchDecision, agreement float64, durationOK bool) bool {
-	return anchor.Matched &&
+	return anchor.Inliers >= MinInliers &&
+		anchor.ColorMean <= MaxColorMean &&
+		anchor.Coverage >= MinAreaCoverage &&
 		agreement >= MinFrameAgreement &&
 		durationOK
 }

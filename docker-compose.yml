@@ -74,8 +74,20 @@ services:
 
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4318
       OTEL_SERVICE_NAME: aletheia-api
+
+      # Video certification. The decoder needs a path on disk, so an uploaded
+      # video is spilled to VIDEO_TEMP_DIR while it is decoded and removed when
+      # the request ends. The tmpfs below is sized for
+      # VIDEO_MAX_CONCURRENCY x VIDEO_MAX_UPLOAD_BYTES doubled, because Go's
+      # multipart parser already spills large parts before this process sees
+      # them.
+      VIDEO_MAX_UPLOAD_BYTES: "268435456"
+      VIDEO_MAX_CONCURRENCY: "2"
+      VIDEO_TEMP_DIR: /var/tmp/aletheia-video
     volumes:
       - ./config:/config:ro
+    tmpfs:
+      - /var/tmp/aletheia-video:size=2g
     depends_on:
       postgres:
         condition: service_healthy
