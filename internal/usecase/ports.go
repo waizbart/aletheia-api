@@ -10,7 +10,11 @@ import (
 type CertificateRepository interface {
 	Save(ctx context.Context, cert *domain.Certificate) error
 	FindByHash(ctx context.Context, contentHash string) (*domain.Certificate, error)
-	FindCandidatesByPHashes(ctx context.Context, phashes [][32]byte, maxDistance, topK int) ([]*domain.Certificate, error)
+	// FindCandidatesByPHashes returns perceptual candidates of the given media
+	// kind only. The partition is load-bearing: image and video pHashes are not
+	// comparable, so a query that ignored it would return noise and, worse,
+	// could answer an image upload with a video's certificate.
+	FindCandidatesByPHashes(ctx context.Context, phashes [][32]byte, mediaKind domain.MediaKind, maxDistance, topK int) ([]*domain.Certificate, error)
 	Delete(ctx context.Context, contentHash string) error
 }
 

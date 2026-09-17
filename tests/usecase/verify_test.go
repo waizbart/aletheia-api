@@ -98,7 +98,7 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
-				findCandidatesByPHashesFn: func(_ context.Context, phashes [][32]byte, maxDist, topK int) ([]*domain.Certificate, error) {
+				findCandidatesByPHashesFn: func(_ context.Context, phashes [][32]byte, kind domain.MediaKind, maxDist, topK int) ([]*domain.Certificate, error) {
 					if len(phashes) != 4 {
 						t.Fatalf("expected 4 phash variants, got %d", len(phashes))
 					}
@@ -131,7 +131,7 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
-				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _ domain.MediaKind, _, _ int) ([]*domain.Certificate, error) {
 					return []*domain.Certificate{{
 						ID:        "cert-1",
 						Signature: signatureWithGrid(),
@@ -152,7 +152,7 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
-				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _ domain.MediaKind, _, _ int) ([]*domain.Certificate, error) {
 					return []*domain.Certificate{
 						{ID: "color-mean", Signature: signatureWithGrid()},
 						{ID: "color-max", Signature: signatureWithGrid()},
@@ -200,7 +200,7 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
-				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _ domain.MediaKind, _, _ int) ([]*domain.Certificate, error) {
 					return nil, nil
 				},
 			},
@@ -214,7 +214,7 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
-				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _ domain.MediaKind, _, _ int) ([]*domain.Certificate, error) {
 					return nil, errors.New("phash db error")
 				},
 			},
@@ -243,7 +243,7 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
-				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _ domain.MediaKind, _, _ int) ([]*domain.Certificate, error) {
 					return []*domain.Certificate{
 						{ID: "no-sig"},
 						{ID: "no-grid", Signature: &domain.FeatureSignature{Descriptors: []byte{0x01}}},
@@ -266,7 +266,7 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
-				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _ domain.MediaKind, _, _ int) ([]*domain.Certificate, error) {
 					return []*domain.Certificate{{
 						ID:        "cert-1",
 						Signature: signatureWithGrid(),
@@ -298,7 +298,7 @@ func TestVerifyUseCase_Execute(t *testing.T) {
 				findByHashFn: func(_ context.Context, _ string) (*domain.Certificate, error) {
 					return nil, nil
 				},
-				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _, _ int) ([]*domain.Certificate, error) {
+				findCandidatesByPHashesFn: func(_ context.Context, _ [][32]byte, _ domain.MediaKind, _, _ int) ([]*domain.Certificate, error) {
 					return []*domain.Certificate{
 						{ID: "broken", Signature: signatureWithGrid()},
 						{ID: "ok", Signature: signatureWithGrid()},

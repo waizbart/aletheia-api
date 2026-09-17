@@ -14,7 +14,7 @@ func (errReader) Read([]byte) (int, error) { return 0, errors.New("read error") 
 type mockRepo struct {
 	saveFn                    func(ctx context.Context, cert *domain.Certificate) error
 	findByHashFn              func(ctx context.Context, hash string) (*domain.Certificate, error)
-	findCandidatesByPHashesFn func(ctx context.Context, phashes [][32]byte, maxDistance, topK int) ([]*domain.Certificate, error)
+	findCandidatesByPHashesFn func(ctx context.Context, phashes [][32]byte, mediaKind domain.MediaKind, maxDistance, topK int) ([]*domain.Certificate, error)
 	deleteFn                  func(ctx context.Context, hash string) error
 }
 
@@ -26,11 +26,11 @@ func (m *mockRepo) FindByHash(ctx context.Context, hash string) (*domain.Certifi
 	return m.findByHashFn(ctx, hash)
 }
 
-func (m *mockRepo) FindCandidatesByPHashes(ctx context.Context, phashes [][32]byte, maxDistance, topK int) ([]*domain.Certificate, error) {
+func (m *mockRepo) FindCandidatesByPHashes(ctx context.Context, phashes [][32]byte, mediaKind domain.MediaKind, maxDistance, topK int) ([]*domain.Certificate, error) {
 	if m.findCandidatesByPHashesFn == nil {
 		return nil, nil
 	}
-	return m.findCandidatesByPHashesFn(ctx, phashes, maxDistance, topK)
+	return m.findCandidatesByPHashesFn(ctx, phashes, mediaKind, maxDistance, topK)
 }
 
 func (m *mockRepo) Delete(ctx context.Context, hash string) error {

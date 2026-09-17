@@ -27,9 +27,11 @@ func (r *PostgresCertificateRepo) Save(ctx context.Context, cert *domain.Certifi
 		INSERT INTO certificates (
 			content_hash, phash, orb_descriptors, orb_keypoints, color_grid,
 			ref_width, ref_height, feature_commitment, registrant, tx_hash,
-			block_number, created_at, org_id, device_id, captured_at
+			block_number, created_at, org_id, device_id, captured_at,
+			media_kind, duration_ms, frame_phashes, anchor_index
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+			$16, $17, $18, $19)
 		RETURNING id`
 
 	var phash, orbDesc, orbKp, colorGrid, commitment []byte
@@ -50,6 +52,25 @@ func (r *PostgresCertificateRepo) Save(ctx context.Context, cert *domain.Certifi
 	}
 	if cert.FeatureCommitment != nil {
 		commitment = cert.FeatureCommitment[:]
+	}
+
+	// media_kind is NOT NULL with a CHECK constraint, so an unset kind would
+	// fail with a constraint error rather than the obvious default. Callers set
+	// it explicitly; this is the safety net.
+	mediaKind := cert.MediaKind
+	if mediaKind == "" {
+		mediaKind = domain.MediaKindImage
+	}
+
+	var framePHashes []byte
+	var anchorIndex sql.NullInt32
+	var durationMs sql.NullInt32
+	if cert.Video != nil && len(cert.Video.FramePHashes) > 0 {
+		framePHashes = domain.EncodeFramePHashes(cert.Video.FramePHashes)
+		anchorIndex = sql.NullInt32{Int32: int32(cert.Video.AnchorIndex), Valid: true}
+	}
+	if cert.DurationMs > 0 {
+		durationMs = sql.NullInt32{Int32: int32(cert.DurationMs), Valid: true}
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -74,6 +95,10 @@ func (r *PostgresCertificateRepo) Save(ctx context.Context, cert *domain.Certifi
 		nullUUID(cert.OrgID),
 		nullUUID(cert.DeviceID),
 		nullTime(cert.CapturedAt),
+		string(mediaKind),
+		durationMs,
+		framePHashes,
+		anchorIndex,
 	).Scan(&cert.ID); err != nil {
 		return fmt.Errorf("postgres save: %w", err)
 	}
@@ -106,11 +131,15 @@ func insertPHashBands(ctx context.Context, tx *sql.Tx, certID string, phash [32]
 	return nil
 }
 
+// certificateColumns is the read projection. It must stay in lockstep with
+// scanCertificate's destination list: both are positional, and a column added
+// to one without the other silently shifts every field after it.
 const certificateColumns = `
 	id, content_hash, phash, orb_descriptors, orb_keypoints, color_grid,
 	ref_width, ref_height, feature_commitment, registrant, tx_hash,
 	block_number, created_at, org_id, device_id, captured_at,
-	anchor_id, leaf_index, merkle_proof`
+	anchor_id, leaf_index, merkle_proof,
+	media_kind, duration_ms, frame_phashes, anchor_index`
 
 // nullUUID maps an empty identifier to SQL NULL so the UUID columns stay
 // well-typed for rows that have no org or device.
@@ -152,6 +181,9 @@ func scanCertificate(scanner interface {
 	var capturedAt sql.NullTime
 	var leafIndex sql.NullInt32
 	var merkleProof pq.ByteaArray
+	var mediaKind sql.NullString
+	var durationMs, anchorIndex sql.NullInt32
+	var framePHashes []byte
 	if err := scanner.Scan(
 		&cert.ID,
 		&cert.ContentHash,
@@ -172,6 +204,10 @@ func scanCertificate(scanner interface {
 		&anchorID,
 		&leafIndex,
 		&merkleProof,
+		&mediaKind,
+		&durationMs,
+		&framePHashes,
+		&anchorIndex,
 	); err != nil {
 		return nil, err
 	}
@@ -202,6 +238,18 @@ func scanCertificate(scanner interface {
 		var arr [32]byte
 		copy(arr[:], commitment)
 		cert.FeatureCommitment = &arr
+	}
+	cert.MediaKind = domain.MediaKind(mediaKind.String)
+	if cert.MediaKind == "" {
+		cert.MediaKind = domain.MediaKindImage
+	}
+	cert.DurationMs = int(durationMs.Int32)
+	if frames := domain.DecodeFramePHashes(framePHashes); len(frames) > 0 {
+		cert.Video = &domain.VideoSignature{
+			FramePHashes: frames,
+			AnchorIndex:  int(anchorIndex.Int32),
+			DurationMs:   cert.DurationMs,
+		}
 	}
 	return cert, nil
 }
@@ -242,7 +290,13 @@ func (r *PostgresCertificateRepo) Delete(ctx context.Context, contentHash string
 // probe against phash_bands. The set of cert ids that collide on at least one
 // band is then re-checked with the exact 256-bit Hamming distance. Top-K are
 // returned in distance order.
-func (r *PostgresCertificateRepo) FindCandidatesByPHashes(ctx context.Context, phashes [][32]byte, maxDistance, topK int) ([]*domain.Certificate, error) {
+//
+// mediaKind partitions the result. Image and video pHashes are computed in
+// different metric spaces — a video frame is box-filter resized before hashing
+// and an image is not — so a cross-media hit is noise, and answering an image
+// query with a video certificate would hand the caller a content_hash it cannot
+// reproduce from what it uploaded.
+func (r *PostgresCertificateRepo) FindCandidatesByPHashes(ctx context.Context, phashes [][32]byte, mediaKind domain.MediaKind, maxDistance, topK int) ([]*domain.Certificate, error) {
 	if len(phashes) == 0 {
 		return nil, nil
 	}
@@ -255,8 +309,10 @@ func (r *PostgresCertificateRepo) FindCandidatesByPHashes(ctx context.Context, p
 		return nil, nil
 	}
 
-	q := `SELECT ` + certificateColumns + ` FROM certificates WHERE id = ANY($1::uuid[]) AND phash IS NOT NULL`
-	rows, err := r.db.QueryContext(ctx, q, pq.Array(candIDs))
+	q := `SELECT ` + certificateColumns + `
+		FROM certificates
+		WHERE id = ANY($1::uuid[]) AND phash IS NOT NULL AND media_kind = $2`
+	rows, err := r.db.QueryContext(ctx, q, pq.Array(candIDs), string(mediaKind))
 	if err != nil {
 		return nil, fmt.Errorf("postgres fetch candidates: %w", err)
 	}
