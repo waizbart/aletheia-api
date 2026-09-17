@@ -57,6 +57,18 @@ func (e *OpenCVExtractor) Compute(_ context.Context, content []byte) (*domain.Fe
 	resized := resizeBGR(bgr, domain.ResizeMax)
 	defer resized.Close()
 
+	return signatureFromResizedBGR(resized)
+}
+
+// signatureFromResizedBGR builds a stored signature from a BGR Mat already
+// resized into the reference space.
+//
+// It is split out of Compute so the video pipeline can reuse it on a decoded
+// frame without re-encoding that frame just to decode it again. It also owns
+// the minFeatureDimension guard, which is a crash mitigation rather than
+// validation: native OpenCV reads out of bounds below that size and takes the
+// whole process down with it.
+func signatureFromResizedBGR(resized gocv.Mat) (*domain.FeatureSignature, error) {
 	if resized.Cols() < minFeatureDimension || resized.Rows() < minFeatureDimension {
 		return nil, fmt.Errorf("image too small for feature extraction: %dx%d (min %d per side)", resized.Cols(), resized.Rows(), minFeatureDimension)
 	}

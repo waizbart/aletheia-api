@@ -42,9 +42,19 @@ const (
 	// MaxFramePHashDistance is the per-frame Hamming budget, out of 256 bits.
 	//
 	// MaxPHashDistance (96) is a recall-first prefilter threshold and is
-	// deliberately loose; a gate needs precision instead. Calibrate against
-	// testdata/curated/video before trusting this value and record the measured
-	// distribution here.
+	// deliberately loose; a gate needs precision instead.
+	//
+	// Measured per-slot distances against a generated clip (see
+	// TestVideoCalibration_FramePHashDistances): re-decoding the same file 0;
+	// rescaled to half size max 12, mean 2.6; frame rate 25 to 30 max 22, mean
+	// 9.1; H.264 transcode max 8, mean 2.1. An unrelated video sits at min 120,
+	// max 136, mean 128 — i.e. random. 64 is the middle of an unusually wide
+	// trough.
+	//
+	// Treat that margin as optimistic. The calibration corpus is a synthetic
+	// scene with modest motion, and real footage with fast pans and real
+	// compression will spread the positive tail further. Re-measure against
+	// recorded video before narrowing this.
 	MaxFramePHashDistance = 64
 
 	// MinFrameAgreement is the fraction of sampled frames that must land within
@@ -52,6 +62,11 @@ const (
 	// 23 of 32. A re-encode plus one slot of drift reliably breaks a handful of
 	// slots that fall on hard cuts or fast pans, where a one-frame temporal
 	// error is a large pixel error. 0.90 is brittle; 0.50 is not a gate.
+	//
+	// The calibration corpus does not exercise the margin: every re-encode
+	// scores 1.000 and the unrelated control scores 0.000. This value is
+	// therefore reasoned rather than fitted, and real footage is what will
+	// actually test it.
 	MinFrameAgreement = 0.70
 
 	// FrameAlignSlack is how many slots either side of its own index a
@@ -59,6 +74,11 @@ const (
 	// a file, but a transcode that drops trailing frames still shifts the grid
 	// slightly. One slot absorbs that; more would start accepting trims, which
 	// whole-file semantics must reject.
+	//
+	// The cost of being wrong by one slot is bounded by how fast the scene
+	// moves: adjacent slots of the calibration clip differ by a mean of 16
+	// bits, well inside MaxFramePHashDistance. A clip with harder cuts between
+	// slots would see that rise, which is exactly the case the slack exists for.
 	FrameAlignSlack = 1
 
 	// MaxDurationDriftRatio and MinDurationDriftMs bound how far a candidate's
