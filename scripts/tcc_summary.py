@@ -292,25 +292,57 @@ def section_controls(out: list[str], rows: list[dict]) -> None:
     controls = [r for r in rows if as_bool(r.get("is_control", "false"))]
     samples = [r for r in rows if not as_bool(r.get("is_control", "false"))]
     matched = sum(1 for r in controls if as_bool(r["pipeline_certified"]))
-    wrong_total = sum(1 for r in samples if r.get("cert_target") == "other")
-    neg_samples = [r for r in samples if not as_bool(r["expected_match"])]
-    wrong_neg = sum(1 for r in neg_samples if r.get("cert_target") == "other")
+
+    # "Returned somebody else's certificate" splits into two very different
+    # events, and conflating them inflates the error count badly.
+    #
+    # A different_image sample carries the peer base's bytes untouched, and the
+    # peer is itself certified, so SHA-256 returns the peer's own certificate.
+    # That is the truthful answer, not a misattribution: the query really is
+    # that image. It counts as a correct true negative against the base under
+    # test, and it is the overwhelming majority of "other" verdicts.
+    #
+    # The number chapter 7 should report is the other one: a sample attributed
+    # to a different certificate by *visual matching*, where the system claimed
+    # a likeness it should not have.
+    by_sha = [r for r in samples
+              if r.get("cert_target") == "other" and r.get("decided_stage") == "sha256"]
+    by_visual = [r for r in samples
+                 if r.get("cert_target") == "other"
+                 and r.get("decided_stage") != "sha256"]
+    visual_candidates = [r for r in samples if r.get("decided_stage") != "sha256"]
 
     out.append("## Controles negativos\n")
     out.append("| controle | n | eventos | taxa [IC 95%] |")
     out.append("| --- | ---: | ---: | --- |")
     out.append(f"| Imagem nunca certificada casou com algum certificado | {len(controls)} "
                f"| {matched} | {fmt_rate(matched, len(controls))} |")
-    out.append(f"| Amostra atribuída ao certificado errado (todas) | {len(samples)} "
-               f"| {wrong_total} | {fmt_rate(wrong_total, len(samples))} |")
-    out.append(f"| Amostra negativa atribuída ao certificado errado | {len(neg_samples)} "
-               f"| {wrong_neg} | {fmt_rate(wrong_neg, len(neg_samples))} |")
+    out.append(f"| Atribuída a outro certificado por correspondência visual "
+               f"| {len(visual_candidates)} | {len(by_visual)} "
+               f"| {fmt_rate(len(by_visual), len(visual_candidates))} |")
+    out.append(f"| Resolvida pelo SHA-256 para o certificado do próprio par "
+               f"(correto por construção) | {len(samples)} | {len(by_sha)} "
+               f"| {fmt_rate(len(by_sha), len(samples))} |")
     out.append("")
+
     if len(controls) and matched == 0:
         _, _, hi = wilson(0, len(controls))
         out.append(f"> Zero eventos em {len(controls)} tentativas tem limite superior de "
                    f"**{hi * 100:.2f}%** a 95%. Reporte esse limite, não \"nunca erra\".")
         out.append("")
+
+    if by_visual:
+        per_base = Counter(r["base_id"] for r in by_visual)
+        out.append("Atribuições visuais a outro certificado, por base de origem. "
+                   "Uma única base concentrando muitas é sinal de conteúdo duplicado "
+                   "no dataset, não de erro do sistema — verifique antes de reportar "
+                   "como falso positivo:\n")
+        out.append("| base | ocorrências |")
+        out.append("| --- | ---: |")
+        for bid, n in per_base.most_common(10):
+            out.append(f"| {bid} | {n} |")
+        out.append("")
+
     out.append(f"> O controle `{CONTROL_FAMILY}` consulta a imagem de uma base com o "
                "certificado dela removido do banco, então o SHA-256 não resolve e a "
                "correspondência visual roda contra todos os outros certificados sem "
