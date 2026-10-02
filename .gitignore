@@ -39,3 +39,11 @@ go.work.sum
 lib/
 contracts/out/
 cache/
+
+# Override local do compose (aponta pra rede e chave reais)
+docker-compose.override.yml
+
+# Benchmark outputs: large CSVs, manifests and logs. Reproduced by rerunning
+# the protocol at tag tcc-benchmark-v1; see docs and scripts/tcc_summary.py.
+/results/
+/logs/
