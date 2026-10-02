@@ -12,6 +12,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0
 	gocv.io/x/gocv v0.31.0
 	golang.org/x/crypto v0.55.0
+	golang.org/x/image v0.34.0
 )
 
 require (

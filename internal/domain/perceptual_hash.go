@@ -9,6 +9,15 @@ import (
 	"math"
 	"math/bits"
 	"sort"
+
+	// The API accepts every format the OpenCV-backed feature extractor can
+	// decode, which includes BMP, TIFF and WebP. image.Decode only knows the
+	// formats whose packages are registered, so without these the pHash of a
+	// BMP/TIFF/WebP upload comes back nil and verification answers "imagem não
+	// decodificável" for an image the matcher handles perfectly well.
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
 )
 
 const (
