@@ -1,0 +1,403 @@
+=== RUN   TestTCC_PipelineSimulation
+    tcc_experiment_test.go:401: manifest /home/waizbart/projects/aletheia-api/testdata/generated/manifest.json: 993 bases, 53622 samples, generator 1.0.0, run 2026-10-02T190807-00000000
+    tcc_experiment_test.go:404: thresholds in manifest: {MinInliers:20 MaxColorMean:8 MaxCellDist:38 MinAreaCoverage:0.42 MaxPHashDistance:96}
+    tcc_experiment_test.go:405: thresholds in code    : min_inliers=20 max_color_mean=8.0 max_cell_dist=38.0 min_area_coverage=0.42 max_phash_distance=96 top_k=64
+    tcc_experiment_test.go:408: workers=4 stride=1 out="/home/waizbart/projects/aletheia-api/results/tcc_results.csv"
+    tcc_experiment_test.go:456: base picsum_682: ORB extraction failed, certifying pHash-only: no features detected
+    tcc_experiment_test.go:456: base picsum_728: ORB extraction failed, certifying pHash-only: no features detected
+    tcc_experiment_test.go:456: base picsum_852: ORB extraction failed, certifying pHash-only: no features detected
+    tcc_experiment_test.go:456: base picsum_994: ORB extraction failed, certifying pHash-only: no features detected
+    tcc_experiment_test.go:479: certified 993 bases in 1m19s
+    tcc_experiment_test.go:529: evaluating 54615 jobs (53622 manifest samples + 993 controls)
+2026/10/02 19:19:10 verify: feature extraction failed: no features detected
+2026/10/02 19:19:10 verify: feature extraction failed: no features detected
+2026/10/02 19:19:11 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 1000/54615  elapsed=2m51s  per-sample=171ms  eta=2h32m58s
+    tcc_experiment_test.go:641: progress 2000/54615  elapsed=5m36s  per-sample=168ms  eta=2h27m19s
+    tcc_experiment_test.go:641: progress 3000/54615  elapsed=8m28s  per-sample=169ms  eta=2h25m35s
+2026/10/02 19:26:26 verify: feature extraction failed: no features detected
+2026/10/02 19:26:26 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 4000/54615  elapsed=11m17s  per-sample=169ms  eta=2h22m51s
+    tcc_experiment_test.go:641: progress 5000/54615  elapsed=14m14s  per-sample=171ms  eta=2h21m10s
+2026/10/02 19:32:19 verify: feature extraction failed: no features detected
+2026/10/02 19:33:05 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 6000/54615  elapsed=17m2s  per-sample=170ms  eta=2h18m4s
+2026/10/02 19:35:12 verify: feature extraction failed: no features detected
+2026/10/02 19:35:12 verify: feature extraction failed: no features detected
+2026/10/02 19:35:12 verify: feature extraction failed: no features detected
+2026/10/02 19:35:12 verify: feature extraction failed: no features detected
+2026/10/02 19:35:13 verify: feature extraction failed: no features detected
+2026/10/02 19:35:13 verify: feature extraction failed: no features detected
+2026/10/02 19:35:13 verify: feature extraction failed: no features detected
+2026/10/02 19:35:49 verify: feature extraction failed: no features detected
+2026/10/02 19:35:50 verify: feature extraction failed: no features detected
+2026/10/02 19:36:44 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 7000/54615  elapsed=19m51s  per-sample=170ms  eta=2h15m1s
+2026/10/02 19:37:50 verify: feature extraction failed: no features detected
+2026/10/02 19:39:41 verify: feature extraction failed: no features detected
+2026/10/02 19:39:43 verify: feature extraction failed: no features detected
+2026/10/02 19:39:43 verify: feature extraction failed: no features detected
+2026/10/02 19:39:43 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 8000/54615  elapsed=22m46s  per-sample=171ms  eta=2h12m39s
+    tcc_experiment_test.go:641: progress 9000/54615  elapsed=25m41s  per-sample=171ms  eta=2h10m8s
+2026/10/02 19:43:54 verify: feature extraction failed: no features detected
+2026/10/02 19:43:55 verify: feature extraction failed: no features detected
+2026/10/02 19:43:55 verify: feature extraction failed: no features detected
+2026/10/02 19:45:30 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 10000/54615  elapsed=28m33s  per-sample=171ms  eta=2h7m22s
+2026/10/02 19:46:15 verify: feature extraction failed: no features detected
+2026/10/02 19:48:36 verify: feature extraction failed: no features detected
+2026/10/02 19:48:37 verify: feature extraction failed: no features detected
+2026/10/02 19:48:38 verify: feature extraction failed: no features detected
+2026/10/02 19:48:38 verify: feature extraction failed: no features detected
+2026/10/02 19:48:38 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 11000/54615  elapsed=31m27s  per-sample=172ms  eta=2h4m43s
+2026/10/02 19:49:25 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 12000/54615  elapsed=34m21s  per-sample=172ms  eta=2h1m59s
+    tcc_experiment_test.go:641: progress 13000/54615  elapsed=37m18s  per-sample=172ms  eta=1h59m25s
+    tcc_experiment_test.go:641: progress 14000/54615  elapsed=40m14s  per-sample=172ms  eta=1h56m44s
+2026/10/02 19:59:11 verify: feature extraction failed: no features detected
+2026/10/02 19:59:12 verify: feature extraction failed: no features detected
+2026/10/02 19:59:12 verify: feature extraction failed: no features detected
+2026/10/02 19:59:12 verify: feature extraction failed: no features detected
+2026/10/02 19:59:13 verify: feature extraction failed: no features detected
+2026/10/02 19:59:13 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 15000/54615  elapsed=43m11s  per-sample=173ms  eta=1h54m3s
+2026/10/02 20:02:42 verify: feature extraction failed: no features detected
+2026/10/02 20:02:42 verify: feature extraction failed: no features detected
+2026/10/02 20:02:43 verify: feature extraction failed: no features detected
+2026/10/02 20:02:43 verify: feature extraction failed: no features detected
+2026/10/02 20:02:43 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 16000/54615  elapsed=46m4s  per-sample=173ms  eta=1h51m11s
+2026/10/02 20:04:44 verify: feature extraction failed: no features detected
+2026/10/02 20:04:44 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 17000/54615  elapsed=49m2s  per-sample=173ms  eta=1h48m30s
+2026/10/02 20:08:03 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 18000/54615  elapsed=51m55s  per-sample=173ms  eta=1h45m36s
+2026/10/02 20:10:25 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 19000/54615  elapsed=54m53s  per-sample=173ms  eta=1h42m53s
+    tcc_experiment_test.go:641: progress 20000/54615  elapsed=57m53s  per-sample=174ms  eta=1h40m11s
+2026/10/02 20:16:58 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 21000/54615  elapsed=1h0m47s  per-sample=174ms  eta=1h37m18s
+    tcc_experiment_test.go:641: progress 22000/54615  elapsed=1h3m41s  per-sample=174ms  eta=1h34m25s
+    tcc_experiment_test.go:641: progress 23000/54615  elapsed=1h6m36s  per-sample=174ms  eta=1h31m33s
+2026/10/02 20:25:30 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 24000/54615  elapsed=1h9m30s  per-sample=174ms  eta=1h28m39s
+2026/10/02 20:28:30 verify: feature extraction failed: no features detected
+2026/10/02 20:28:30 verify: feature extraction failed: no features detected
+2026/10/02 20:28:30 verify: feature extraction failed: no features detected
+2026/10/02 20:28:30 verify: feature extraction failed: no features detected
+2026/10/02 20:28:30 verify: feature extraction failed: no features detected
+2026/10/02 20:28:30 verify: feature extraction failed: no features detected
+2026/10/02 20:28:31 verify: feature extraction failed: no features detected
+2026/10/02 20:28:31 verify: feature extraction failed: no features detected
+2026/10/02 20:28:31 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 25000/54615  elapsed=1h12m13s  per-sample=173ms  eta=1h25m33s
+    tcc_experiment_test.go:641: progress 26000/54615  elapsed=1h15m2s  per-sample=173ms  eta=1h22m35s
+2026/10/02 20:34:22 verify: feature extraction failed: no features detected
+2026/10/02 20:34:23 verify: feature extraction failed: no features detected
+2026/10/02 20:34:24 verify: feature extraction failed: no features detected
+2026/10/02 20:34:24 verify: feature extraction failed: no features detected
+2026/10/02 20:34:24 verify: feature extraction failed: no features detected
+2026/10/02 20:34:49 verify: feature extraction failed: no features detected
+2026/10/02 20:34:49 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 27000/54615  elapsed=1h17m49s  per-sample=173ms  eta=1h19m35s
+    tcc_experiment_test.go:641: progress 28000/54615  elapsed=1h20m39s  per-sample=173ms  eta=1h16m40s
+2026/10/02 20:39:25 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 29000/54615  elapsed=1h23m30s  per-sample=173ms  eta=1h13m46s
+2026/10/02 20:41:51 verify: feature extraction failed: no features detected
+2026/10/02 20:41:51 verify: feature extraction failed: no features detected
+2026/10/02 20:41:52 verify: feature extraction failed: no features detected
+2026/10/02 20:41:52 verify: feature extraction failed: no features detected
+2026/10/02 20:42:28 verify: feature extraction failed: no features detected
+2026/10/02 20:42:28 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 30000/54615  elapsed=1h26m17s  per-sample=173ms  eta=1h10m48s
+    tcc_experiment_test.go:641: progress 31000/54615  elapsed=1h29m8s  per-sample=173ms  eta=1h7m54s
+    tcc_experiment_test.go:641: progress 32000/54615  elapsed=1h31m59s  per-sample=172ms  eta=1h5m0s
+    tcc_experiment_test.go:641: progress 33000/54615  elapsed=1h34m51s  per-sample=172ms  eta=1h2m8s
+    tcc_experiment_test.go:641: progress 34000/54615  elapsed=1h37m41s  per-sample=172ms  eta=59m13s
+    tcc_experiment_test.go:641: progress 35000/54615  elapsed=1h40m32s  per-sample=172ms  eta=56m20s
+    tcc_experiment_test.go:641: progress 36000/54615  elapsed=1h43m23s  per-sample=172ms  eta=53m28s
+2026/10/02 21:03:48 verify: feature extraction failed: no features detected
+2026/10/02 21:03:48 verify: feature extraction failed: no features detected
+2026/10/02 21:03:48 verify: feature extraction failed: no features detected
+2026/10/02 21:03:48 verify: feature extraction failed: no features detected
+2026/10/02 21:03:48 verify: feature extraction failed: no features detected
+2026/10/02 21:03:49 verify: feature extraction failed: no features detected
+2026/10/02 21:03:49 verify: feature extraction failed: no features detected
+2026/10/02 21:03:49 verify: feature extraction failed: no features detected
+2026/10/02 21:03:49 verify: feature extraction failed: no features detected
+2026/10/02 21:03:49 verify: feature extraction failed: no features detected
+2026/10/02 21:03:49 verify: feature extraction failed: no features detected
+2026/10/02 21:03:49 verify: feature extraction failed: no features detected
+2026/10/02 21:03:49 verify: feature extraction failed: no features detected
+2026/10/02 21:03:50 verify: feature extraction failed: no features detected
+2026/10/02 21:03:50 verify: feature extraction failed: no features detected
+2026/10/02 21:03:50 verify: feature extraction failed: no features detected
+2026/10/02 21:03:50 verify: feature extraction failed: no features detected
+2026/10/02 21:03:50 verify: feature extraction failed: no features detected
+2026/10/02 21:03:50 verify: feature extraction failed: no features detected
+2026/10/02 21:03:50 verify: feature extraction failed: no features detected
+2026/10/02 21:03:50 verify: feature extraction failed: no features detected
+2026/10/02 21:03:50 verify: feature extraction failed: no features detected
+2026/10/02 21:03:51 verify: feature extraction failed: no features detected
+2026/10/02 21:03:51 verify: feature extraction failed: no features detected
+2026/10/02 21:03:51 verify: feature extraction failed: no features detected
+2026/10/02 21:03:51 verify: feature extraction failed: no features detected
+2026/10/02 21:03:51 verify: feature extraction failed: no features detected
+2026/10/02 21:03:51 verify: feature extraction failed: no features detected
+2026/10/02 21:03:51 verify: feature extraction failed: no features detected
+2026/10/02 21:03:51 verify: feature extraction failed: no features detected
+2026/10/02 21:03:51 verify: feature extraction failed: no features detected
+2026/10/02 21:03:52 verify: feature extraction failed: no features detected
+2026/10/02 21:03:52 verify: feature extraction failed: no features detected
+2026/10/02 21:03:52 verify: feature extraction failed: no features detected
+2026/10/02 21:03:52 verify: feature extraction failed: no features detected
+2026/10/02 21:03:52 verify: feature extraction failed: no features detected
+2026/10/02 21:03:52 verify: feature extraction failed: no features detected
+2026/10/02 21:03:52 verify: feature extraction failed: no features detected
+2026/10/02 21:03:52 verify: feature extraction failed: no features detected
+2026/10/02 21:03:52 verify: feature extraction failed: no features detected
+2026/10/02 21:03:53 verify: feature extraction failed: no features detected
+2026/10/02 21:03:53 verify: feature extraction failed: no features detected
+2026/10/02 21:03:53 verify: feature extraction failed: no features detected
+2026/10/02 21:03:53 verify: feature extraction failed: no features detected
+2026/10/02 21:03:53 verify: feature extraction failed: no features detected
+2026/10/02 21:03:53 verify: feature extraction failed: no features detected
+2026/10/02 21:03:53 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 37000/54615  elapsed=1h46m14s  per-sample=172ms  eta=50m34s
+    tcc_experiment_test.go:641: progress 38000/54615  elapsed=1h49m6s  per-sample=172ms  eta=47m42s
+2026/10/02 21:07:23 verify: feature extraction failed: no features detected
+2026/10/02 21:07:23 verify: feature extraction failed: no features detected
+2026/10/02 21:07:40 verify: feature extraction failed: no features detected
+2026/10/02 21:08:50 verify: feature extraction failed: no features detected
+2026/10/02 21:08:50 verify: feature extraction failed: no features detected
+2026/10/02 21:08:50 verify: feature extraction failed: no features detected
+2026/10/02 21:08:51 verify: feature extraction failed: no features detected
+2026/10/02 21:08:51 verify: feature extraction failed: no features detected
+2026/10/02 21:08:51 verify: feature extraction failed: no features detected
+2026/10/02 21:08:51 verify: feature extraction failed: no features detected
+2026/10/02 21:08:52 verify: feature extraction failed: no features detected
+2026/10/02 21:08:52 verify: feature extraction failed: no features detected
+2026/10/02 21:08:52 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 39000/54615  elapsed=1h51m52s  per-sample=172ms  eta=44m47s
+2026/10/02 21:09:40 verify: feature extraction failed: no features detected
+2026/10/02 21:09:41 verify: feature extraction failed: no features detected
+2026/10/02 21:09:41 verify: feature extraction failed: no features detected
+2026/10/02 21:09:41 verify: feature extraction failed: no features detected
+2026/10/02 21:09:41 verify: feature extraction failed: no features detected
+2026/10/02 21:09:42 verify: feature extraction failed: no features detected
+2026/10/02 21:09:42 verify: feature extraction failed: no features detected
+2026/10/02 21:09:42 verify: feature extraction failed: no features detected
+2026/10/02 21:09:42 verify: feature extraction failed: no features detected
+2026/10/02 21:09:42 verify: feature extraction failed: no features detected
+2026/10/02 21:09:42 verify: feature extraction failed: no features detected
+2026/10/02 21:09:42 verify: feature extraction failed: no features detected
+2026/10/02 21:09:42 verify: feature extraction failed: no features detected
+2026/10/02 21:09:42 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:43 verify: feature extraction failed: no features detected
+2026/10/02 21:09:44 verify: feature extraction failed: no features detected
+2026/10/02 21:09:44 verify: feature extraction failed: no features detected
+2026/10/02 21:09:44 verify: feature extraction failed: no features detected
+2026/10/02 21:09:44 verify: feature extraction failed: no features detected
+2026/10/02 21:09:44 verify: feature extraction failed: no features detected
+2026/10/02 21:09:44 verify: feature extraction failed: no features detected
+2026/10/02 21:09:44 verify: feature extraction failed: no features detected
+2026/10/02 21:09:44 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:45 verify: feature extraction failed: no features detected
+2026/10/02 21:09:46 verify: feature extraction failed: no features detected
+2026/10/02 21:09:46 verify: feature extraction failed: no features detected
+2026/10/02 21:09:46 verify: feature extraction failed: no features detected
+2026/10/02 21:10:28 verify: feature extraction failed: no features detected
+2026/10/02 21:10:36 verify: feature extraction failed: no features detected
+2026/10/02 21:10:36 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 40000/54615  elapsed=1h54m35s  per-sample=172ms  eta=41m52s
+2026/10/02 21:13:34 verify: feature extraction failed: no features detected
+2026/10/02 21:13:34 verify: feature extraction failed: no features detected
+2026/10/02 21:13:35 verify: feature extraction failed: no features detected
+2026/10/02 21:14:10 verify: feature extraction failed: no features detected
+2026/10/02 21:14:10 verify: feature extraction failed: no features detected
+2026/10/02 21:14:56 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 41000/54615  elapsed=1h57m22s  per-sample=172ms  eta=38m58s
+    tcc_experiment_test.go:641: progress 42000/54615  elapsed=2h0m15s  per-sample=172ms  eta=36m7s
+    tcc_experiment_test.go:641: progress 43000/54615  elapsed=2h3m7s  per-sample=172ms  eta=33m15s
+    tcc_experiment_test.go:641: progress 44000/54615  elapsed=2h5m52s  per-sample=172ms  eta=30m22s
+    tcc_experiment_test.go:641: progress 45000/54615  elapsed=2h8m40s  per-sample=172ms  eta=27m29s
+2026/10/02 21:26:47 verify: feature extraction failed: no features detected
+2026/10/02 21:26:47 verify: feature extraction failed: no features detected
+2026/10/02 21:26:47 verify: feature extraction failed: no features detected
+2026/10/02 21:26:47 verify: feature extraction failed: no features detected
+2026/10/02 21:26:47 verify: feature extraction failed: no features detected
+2026/10/02 21:26:47 verify: feature extraction failed: no features detected
+2026/10/02 21:26:48 verify: feature extraction failed: no features detected
+2026/10/02 21:26:48 verify: feature extraction failed: no features detected
+2026/10/02 21:26:48 verify: feature extraction failed: no features detected
+2026/10/02 21:27:19 verify: feature extraction failed: no features detected
+2026/10/02 21:27:20 verify: feature extraction failed: no features detected
+2026/10/02 21:27:20 verify: feature extraction failed: no features detected
+2026/10/02 21:27:20 verify: feature extraction failed: no features detected
+2026/10/02 21:27:20 verify: feature extraction failed: no features detected
+2026/10/02 21:27:20 verify: feature extraction failed: no features detected
+2026/10/02 21:27:21 verify: feature extraction failed: no features detected
+2026/10/02 21:27:21 verify: feature extraction failed: no features detected
+2026/10/02 21:27:21 verify: feature extraction failed: no features detected
+2026/10/02 21:27:21 verify: feature extraction failed: no features detected
+2026/10/02 21:27:21 verify: feature extraction failed: no features detected
+2026/10/02 21:27:21 verify: feature extraction failed: no features detected
+2026/10/02 21:27:21 verify: feature extraction failed: no features detected
+2026/10/02 21:27:21 verify: feature extraction failed: no features detected
+2026/10/02 21:27:21 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:22 verify: feature extraction failed: no features detected
+2026/10/02 21:27:23 verify: feature extraction failed: no features detected
+2026/10/02 21:27:23 verify: feature extraction failed: no features detected
+2026/10/02 21:27:23 verify: feature extraction failed: no features detected
+2026/10/02 21:27:23 verify: feature extraction failed: no features detected
+2026/10/02 21:27:23 verify: feature extraction failed: no features detected
+2026/10/02 21:27:23 verify: feature extraction failed: no features detected
+2026/10/02 21:27:23 verify: feature extraction failed: no features detected
+2026/10/02 21:27:23 verify: feature extraction failed: no features detected
+2026/10/02 21:27:24 verify: feature extraction failed: no features detected
+2026/10/02 21:27:24 verify: feature extraction failed: no features detected
+2026/10/02 21:27:24 verify: feature extraction failed: no features detected
+2026/10/02 21:27:24 verify: feature extraction failed: no features detected
+2026/10/02 21:27:24 verify: feature extraction failed: no features detected
+2026/10/02 21:27:24 verify: feature extraction failed: no features detected
+2026/10/02 21:27:24 verify: feature extraction failed: no features detected
+2026/10/02 21:27:24 verify: feature extraction failed: no features detected
+2026/10/02 21:27:25 verify: feature extraction failed: no features detected
+2026/10/02 21:27:25 verify: feature extraction failed: no features detected
+2026/10/02 21:27:25 verify: feature extraction failed: no features detected
+2026/10/02 21:27:25 verify: feature extraction failed: no features detected
+2026/10/02 21:27:25 verify: feature extraction failed: no features detected
+2026/10/02 21:27:25 verify: feature extraction failed: no features detected
+2026/10/02 21:27:25 verify: feature extraction failed: no features detected
+2026/10/02 21:27:36 verify: feature extraction failed: no features detected
+2026/10/02 21:27:36 verify: feature extraction failed: no features detected
+2026/10/02 21:27:36 verify: feature extraction failed: no features detected
+2026/10/02 21:27:36 verify: feature extraction failed: no features detected
+2026/10/02 21:27:37 verify: feature extraction failed: no features detected
+2026/10/02 21:27:37 verify: feature extraction failed: no features detected
+2026/10/02 21:27:37 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 46000/54615  elapsed=2h11m22s  per-sample=171ms  eta=24m36s
+    tcc_experiment_test.go:641: progress 47000/54615  elapsed=2h14m15s  per-sample=171ms  eta=21m45s
+2026/10/02 21:32:41 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 48000/54615  elapsed=2h17m3s  per-sample=171ms  eta=18m53s
+2026/10/02 21:36:44 verify: feature extraction failed: no features detected
+2026/10/02 21:36:44 verify: feature extraction failed: no features detected
+2026/10/02 21:36:44 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 49000/54615  elapsed=2h19m59s  per-sample=171ms  eta=16m2s
+2026/10/02 21:38:19 verify: feature extraction failed: no features detected
+2026/10/02 21:38:19 verify: feature extraction failed: no features detected
+2026/10/02 21:38:54 verify: feature extraction failed: no features detected
+2026/10/02 21:38:55 verify: feature extraction failed: no features detected
+2026/10/02 21:38:55 verify: feature extraction failed: no features detected
+2026/10/02 21:38:55 verify: feature extraction failed: no features detected
+2026/10/02 21:39:46 verify: feature extraction failed: no features detected
+2026/10/02 21:39:46 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 50000/54615  elapsed=2h22m47s  per-sample=171ms  eta=13m11s
+    tcc_experiment_test.go:641: progress 51000/54615  elapsed=2h25m34s  per-sample=171ms  eta=10m19s
+2026/10/02 21:45:51 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 52000/54615  elapsed=2h28m24s  per-sample=171ms  eta=7m28s
+2026/10/02 21:48:11 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 53000/54615  elapsed=2h31m13s  per-sample=171ms  eta=4m36s
+2026/10/02 21:49:24 verify: feature extraction failed: no features detected
+2026/10/02 21:49:25 verify: feature extraction failed: no features detected
+2026/10/02 21:49:25 verify: feature extraction failed: no features detected
+2026/10/02 21:49:25 verify: feature extraction failed: no features detected
+2026/10/02 21:49:25 verify: feature extraction failed: no features detected
+2026/10/02 21:49:26 verify: feature extraction failed: no features detected
+2026/10/02 21:49:26 verify: feature extraction failed: no features detected
+2026/10/02 21:49:26 verify: feature extraction failed: no features detected
+2026/10/02 21:49:26 verify: feature extraction failed: no features detected
+2026/10/02 21:49:26 verify: feature extraction failed: no features detected
+2026/10/02 21:49:27 verify: feature extraction failed: no features detected
+2026/10/02 21:49:27 verify: feature extraction failed: no features detected
+2026/10/02 21:49:27 verify: feature extraction failed: no features detected
+2026/10/02 21:49:27 verify: feature extraction failed: no features detected
+2026/10/02 21:49:27 verify: feature extraction failed: no features detected
+2026/10/02 21:49:27 verify: feature extraction failed: no features detected
+2026/10/02 21:49:27 verify: feature extraction failed: no features detected
+2026/10/02 21:49:27 verify: feature extraction failed: no features detected
+2026/10/02 21:49:27 verify: feature extraction failed: no features detected
+2026/10/02 21:49:27 verify: feature extraction failed: no features detected
+2026/10/02 21:49:28 verify: feature extraction failed: no features detected
+2026/10/02 21:49:28 verify: feature extraction failed: no features detected
+2026/10/02 21:49:28 verify: feature extraction failed: no features detected
+2026/10/02 21:49:28 verify: feature extraction failed: no features detected
+2026/10/02 21:49:28 verify: feature extraction failed: no features detected
+2026/10/02 21:49:28 verify: feature extraction failed: no features detected
+2026/10/02 21:49:28 verify: feature extraction failed: no features detected
+2026/10/02 21:49:28 verify: feature extraction failed: no features detected
+2026/10/02 21:49:28 verify: feature extraction failed: no features detected
+2026/10/02 21:49:29 verify: feature extraction failed: no features detected
+2026/10/02 21:49:29 verify: feature extraction failed: no features detected
+2026/10/02 21:49:29 verify: feature extraction failed: no features detected
+2026/10/02 21:49:29 verify: feature extraction failed: no features detected
+2026/10/02 21:49:29 verify: feature extraction failed: no features detected
+2026/10/02 21:49:29 verify: feature extraction failed: no features detected
+2026/10/02 21:49:29 verify: feature extraction failed: no features detected
+2026/10/02 21:49:30 verify: feature extraction failed: no features detected
+2026/10/02 21:49:30 verify: feature extraction failed: no features detected
+2026/10/02 21:49:30 verify: feature extraction failed: no features detected
+2026/10/02 21:49:30 verify: feature extraction failed: no features detected
+2026/10/02 21:49:30 verify: feature extraction failed: no features detected
+2026/10/02 21:49:30 verify: feature extraction failed: no features detected
+2026/10/02 21:49:30 verify: feature extraction failed: no features detected
+2026/10/02 21:49:30 verify: feature extraction failed: no features detected
+2026/10/02 21:49:31 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 54000/54615  elapsed=2h33m23s  per-sample=170ms  eta=1m45s
+2026/10/02 21:51:28 verify: feature extraction failed: no features detected
+2026/10/02 21:51:31 verify: feature extraction failed: no features detected
+2026/10/02 21:51:40 verify: feature extraction failed: no features detected
+2026/10/02 21:51:51 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:652: per-sample records written to /home/waizbart/projects/aletheia-api/results/tcc_results.csv
+    tcc_experiment_test.go:682: 
+        === TCC PIPELINE SIMULATION ===
+        jobs evaluated : 54615 in 2h34m9s (4 workers, stride 1)
+        errors         : 0
+        pipeline (manifest samples): TP=24549 FP=1887 FN=10206 TN=16980  precision=0.929 recall=0.706
+        pairwise (manifest samples): TP=28296 FP=1893 FN=6275 TN=16813  precision=0.937 recall=0.818
+        uncertified_image control  : 2/993 matched some certificate
+        attributions to a wrong certificate: 1022
+        
+        deciding stage:
+          no_match                 19988
+          orb_extract_failed       318
+          prefilter_empty          6851
+          sha256                   993
+          visual_match             26465
+        
+--- PASS: TestTCC_PipelineSimulation (9329.63s)
+PASS
+ok  	github.com/waizbart/aletheia-api/tests/feature	9329.932s

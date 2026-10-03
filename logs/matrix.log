@@ -1,0 +1,172 @@
+=== RUN   TestDataset_FullMatrix
+    dataset_matrix_test.go:31: running manifest-driven eval from /home/waizbart/projects/aletheia-api/testdata/generated/manifest.json
+    dataset_matrix_test.go:32: skip base picsum_728: extractor rejected base (no features detected)
+    dataset_matrix_test.go:32: skip base picsum_852: extractor rejected base (no features detected)
+    dataset_matrix_test.go:32: skip base picsum_994: extractor rejected base (no features detected)
+    dataset_matrix_test.go:32: skip base picsum_682: extractor rejected base (no features detected)
+    dataset_matrix_test.go:32: loaded 989 unique bases (4 skipped: no ORB features)
+    dataset_matrix_test.go:32: sample picsum_241__different_image: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_886__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_457__downscale_0.33x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_457__downscale_256px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_457__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_457__crop_border_10pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_457__crop_border_15pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_457__crop_border_20pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_457__heavy_crop_40pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_457__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_457__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_855__downscale_0.33x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_855__downscale_256px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_855__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_855__crop_border_20pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_855__heavy_crop_40pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_855__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_855__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_703__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_703__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_160__crop_border_20pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_160__heavy_crop_40pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_160__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_160__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_334__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_986__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_387__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_218__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_926__crop_border_20pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_926__heavy_crop_40pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_926__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_926__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_131__downscale_256px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_131__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_131__crop_border_15pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_131__crop_border_20pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_131__heavy_crop_40pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_131__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_131__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_774__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_732__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_496__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_496__crop_border_20pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_496__heavy_crop_40pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_496__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_496__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_53__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_53__crop_border_10pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_53__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_53__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_1009__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_1009__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_1009__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_733__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_733__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_922__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_922__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_704__different_image: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_931__downscale_0.33x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_931__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_185__downscale_0.33x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_185__downscale_256px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_185__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_194__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_439__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_902__different_image: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_971__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_848__downscale_0.75x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_848__downscale_0.5x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_848__downscale_0.33x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_848__downscale_256px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_848__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_848__crop_border_20pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_848__heavy_crop_40pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_848__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_848__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_1056__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_1056__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_499__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_499__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_300__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_300__crop_border_20pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_300__heavy_crop_40pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_300__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_300__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_114__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_141__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_705__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_721__downscale_0.33x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_721__downscale_256px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_721__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_721__crop_border_5pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_721__crop_border_10pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_721__crop_border_15pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_721__crop_border_20pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_721__heavy_crop_40pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_721__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_721__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_135__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_135__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_213__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_213__crop_border_20pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_213__heavy_crop_40pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_213__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_213__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_349__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_313__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_313__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_199__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_525__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_911__downscale_0.33x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_911__downscale_256px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_911__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_162__different_image: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_279__downscale_0.5x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_279__downscale_0.33x: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_279__downscale_256px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_279__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_279__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_279__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_544__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_544__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_149__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_765__downscale_160px: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_765__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_765__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_119__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_769__heavy_crop_50pct: compute variant: no features detected
+    dataset_matrix_test.go:32: sample picsum_769__heavy_crop_60pct: compute variant: no features detected
+    dataset_matrix_test.go:32: report written to /home/waizbart/projects/aletheia-api/testdata/generated/report.json
+    dataset_matrix_test.go:32: 
+        === MANIFEST EVAL REPORT ===
+        Manifest: /home/waizbart/projects/aletheia-api/testdata/generated/manifest.json
+        Bases   : 989 evaluated, 4 skipped (no ORB features); 216 samples skipped with them
+        All    : TP=28296 FP=1893 FN=6275 TN=16813
+        High-CI: TP=8793 FP=4 FN=108 TN=7843  Precision=1.000 Recall=0.988 F1=0.994
+        
+        Per-family (high-confidence):
+          brightness                     pass=3847/3956 (high: pass=0/0)
+          color_invert                   pass=989/989 (high: pass=989/989)
+          content_overlay                pass=3956/3956 (high: pass=2967/2967)
+          crop_border                    pass=3699/3939 (high: pass=0/0)
+          different_image                pass=985/985 (high: pass=985/985)
+          downscale                      pass=1321/4908 (high: pass=0/0)
+          format_change                  pass=3936/3956 (high: pass=0/0)
+          grayscale                      pass=772/989 (high: pass=0/0)
+          heavy_crop                     pass=2893/2896 (high: pass=1916/1917)
+          hue_shift                      pass=3410/3956 (high: pass=0/0)
+          jpeg_recompress                pass=5791/5934 (high: pass=4880/4945)
+          localized_recolor              pass=705/989 (high: pass=0/0)
+          noise_light                    pass=1954/1978 (high: pass=1954/1978)
+          p3_as_srgb                     pass=835/989 (high: pass=0/0)
+          rotate_cardinal                pass=1737/2967 (high: pass=0/0)
+          rotate_small                   pass=2568/2967 (high: pass=0/0)
+          saturation_boost               pass=1140/1978 (high: pass=0/0)
+          sepia                          pass=986/989 (high: pass=986/989)
+          sharpen                        pass=982/989 (high: pass=982/989)
+          upscale                        pass=1626/1978 (high: pass=0/0)
+          whatsapp_like                  pass=977/989 (high: pass=977/989)
+        
+    dataset_matrix_test.go:32: manifest eval had 129 infrastructure errors
+--- FAIL: TestDataset_FullMatrix (4212.19s)
+FAIL
+FAIL	github.com/waizbart/aletheia-api/tests/feature	4212.524s
+FAIL
