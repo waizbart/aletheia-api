@@ -1,0 +1,183 @@
+{
+  "tp": 28296,
+  "fp": 1893,
+  "fn": 6275,
+  "tn": 16813,
+  "high_tp": 8793,
+  "high_fp": 4,
+  "high_fn": 108,
+  "high_tn": 7843,
+  "precision": 0.999545299533932,
+  "recall": 0.9878665318503539,
+  "f1": 0.9936716013108825,
+  "families": [
+    {
+      "family": "brightness",
+      "pass": 3847,
+      "fail": 109,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "color_invert",
+      "pass": 989,
+      "fail": 0,
+      "high_pass": 989,
+      "high_fail": 0,
+      "high_pass_rate": 1
+    },
+    {
+      "family": "content_overlay",
+      "pass": 3956,
+      "fail": 0,
+      "high_pass": 2967,
+      "high_fail": 0,
+      "high_pass_rate": 1
+    },
+    {
+      "family": "crop_border",
+      "pass": 3699,
+      "fail": 240,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "different_image",
+      "pass": 985,
+      "fail": 0,
+      "high_pass": 985,
+      "high_fail": 0,
+      "high_pass_rate": 1
+    },
+    {
+      "family": "downscale",
+      "pass": 1321,
+      "fail": 3587,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "format_change",
+      "pass": 3936,
+      "fail": 20,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "grayscale",
+      "pass": 772,
+      "fail": 217,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "heavy_crop",
+      "pass": 2893,
+      "fail": 3,
+      "high_pass": 1916,
+      "high_fail": 1,
+      "high_pass_rate": 0.9994783515910276
+    },
+    {
+      "family": "hue_shift",
+      "pass": 3410,
+      "fail": 546,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "jpeg_recompress",
+      "pass": 5791,
+      "fail": 143,
+      "high_pass": 4880,
+      "high_fail": 65,
+      "high_pass_rate": 0.9868554095045501
+    },
+    {
+      "family": "localized_recolor",
+      "pass": 705,
+      "fail": 284,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "noise_light",
+      "pass": 1954,
+      "fail": 24,
+      "high_pass": 1954,
+      "high_fail": 24,
+      "high_pass_rate": 0.9878665318503539
+    },
+    {
+      "family": "p3_as_srgb",
+      "pass": 835,
+      "fail": 154,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "rotate_cardinal",
+      "pass": 1737,
+      "fail": 1230,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "rotate_small",
+      "pass": 2568,
+      "fail": 399,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "saturation_boost",
+      "pass": 1140,
+      "fail": 838,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "sepia",
+      "pass": 986,
+      "fail": 3,
+      "high_pass": 986,
+      "high_fail": 3,
+      "high_pass_rate": 0.9969666329625885
+    },
+    {
+      "family": "sharpen",
+      "pass": 982,
+      "fail": 7,
+      "high_pass": 982,
+      "high_fail": 7,
+      "high_pass_rate": 0.9929221435793731
+    },
+    {
+      "family": "upscale",
+      "pass": 1626,
+      "fail": 352,
+      "high_pass": 0,
+      "high_fail": 0,
+      "high_pass_rate": 0
+    },
+    {
+      "family": "whatsapp_like",
+      "pass": 977,
+      "fail": 12,
+      "high_pass": 977,
+      "high_fail": 12,
+      "high_pass_rate": 0.9878665318503539
+    }
+  ]
+}

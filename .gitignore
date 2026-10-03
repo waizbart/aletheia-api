@@ -43,7 +43,9 @@ cache/
 # Override local do compose (aponta pra rede e chave reais)
 docker-compose.override.yml
 
-# Benchmark outputs: large CSVs, manifests and logs. Reproduced by rerunning
-# the protocol at tag tcc-benchmark-v1; see docs and scripts/tcc_summary.py.
-/results/
-/logs/
+# Benchmark outputs. The results and logs are versioned, because every number in
+# the written report has to be traceable to a file. The two large machine-
+# readable artifacts are committed gzipped; their uncompressed forms are
+# regenerated with `gunzip -k` and stay local.
+/results/manifest.json
+/results/tcc_results.csv

@@ -1,0 +1,74 @@
+# Aletheia — ambiente do benchmark final
+# gerado em 2026-10-02T19:16:02+00:00
+
+## commit
+361c65d8001c996aa76f70c732bcf6afa1797718
+tag: tcc-benchmark-v1
+branch: tcc/benchmark-v1
+
+## toolchain (dentro do container aletheia-tcc:latest)
+# o host nao tem Go/gcc/OpenCV e o sudo exige senha, entao toda a execucao
+# roda em container a partir de golang:1.25-bookworm + libopencv-dev,
+# com o repositorio montado no mesmo caminho absoluto do host.
+go version go1.25.14 linux/amd64
+opencv4: 4.6.0
+gcc (Debian 12.2.0-14+deb12u1) 12.2.0
+CGO_ENABLED=1
+
+## host
+Linux waizbart-server 6.8.0-106-generic #106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           40 bits physical, 48 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  4
+On-line CPU(s) list:                     0-3
+Vendor ID:                               AuthenticAMD
+Model name:                              AMD EPYC-Rome Processor
+CPU family:                              23
+Model:                                   49
+Thread(s) per core:                      1
+Core(s) per socket:                      4
+Socket(s):                               1
+Stepping:                                0
+BogoMIPS:                                4890.81
+Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm rep_good nopl cpuid extd_apicid tsc_known_freq pni pclmulqdq ssse3 fma cx16 sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm cmp_legacy cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw topoext perfctr_core ssbd ibrs ibpb stibp vmmcall fsgsbase bmi1 avx2 smep bmi2 rdseed adx smap clflushopt clwb sha_ni xsaveopt xsavec xgetbv1 clzero xsaveerptr wbnoinvd arat umip rdpid
+Hypervisor vendor:                       KVM
+Virtualization type:                     full
+L1d cache:                               128 KiB (4 instances)
+L1i cache:                               128 KiB (4 instances)
+L2 cache:                                2 MiB (4 instances)
+L3 cache:                                16 MiB (1 instance)
+
+               total        used        free      shared  buff/cache   available
+Mem:           7.6Gi       1.4Gi       685Mi        59Mi       5.9Gi       6.2Gi
+Swap:          4.0Gi       294Mi       3.7Gi
+
+/dev/sda1        75G   42G   30G  59% /
+
+Docker version 29.4.2, build 055a478
+
+Python 3.12.3
+
+## dataset
+{
+  "generator_version": "1.0.0",
+  "run_id": "2026-10-02T190807-00000000",
+  "seed": 42,
+  "dataset_source": "picsum",
+  "source_attribution": "Lorem Picsum (https://picsum.photos) — Unsplash License",
+  "base_count": 993,
+  "variants_per_base": 54,
+  "sample_count": 53622,
+  "thresholds_snapshot": {
+    "min_inliers": 20,
+    "max_color_mean": 8,
+    "max_cell_dist": 38,
+    "min_area_coverage": 0.42,
+    "max_phash_distance": 96
+  },
+  "created_at": "2026-10-02T19:08:07.197776366Z",
+  "tool_commit": "00000000"
+}
+tamanho em disco: 7.3G

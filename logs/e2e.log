@@ -1,0 +1,360 @@
+=== RUN   TestE2E_GeneratedDataset_Matrix
+    dataset_e2e_test.go:50: manifest: 53622 samples over 993 bases
+2026/10/02 22:20:46 certify: feature extraction failed for 870d4a7682b881643deaa59add863898083a57ad5953fff48518f0638776ae88: no features detected
+2026/10/02 22:21:32 certify: feature extraction failed for 491468d1cc3e8c60c72550e38b646d92c99060d6203ad3d111478100080c7e0e: no features detected
+2026/10/02 22:21:52 certify: feature extraction failed for c82b0cad481eb8eb50cd5799f408f0eeb7404bd2556357e0f8cc5af66c2ede34: no features detected
+2026/10/02 22:22:27 certify: feature extraction failed for eaeb0bce04bd1831830e50573a3a4ea0228f29ba7742af4445c9ada73fe7358e: no features detected
+    dataset_e2e_test.go:137: certified 993/993 bases (0 failed)
+    dataset_e2e_test.go:150: verifying 53622 samples with 4 workers
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:27 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:28 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:29 verify: feature extraction failed: no features detected
+2026/10/02 22:26:30 verify: feature extraction failed: no features detected
+2026/10/02 22:26:30 verify: feature extraction failed: no features detected
+2026/10/02 22:26:30 verify: feature extraction failed: no features detected
+2026/10/02 22:26:30 verify: feature extraction failed: no features detected
+2026/10/02 22:26:30 verify: feature extraction failed: no features detected
+2026/10/02 22:26:30 verify: feature extraction failed: no features detected
+2026/10/02 22:26:30 verify: feature extraction failed: no features detected
+2026/10/02 22:26:31 verify: feature extraction failed: no features detected
+2026/10/02 22:26:31 verify: feature extraction failed: no features detected
+2026/10/02 22:26:31 verify: feature extraction failed: no features detected
+2026/10/02 22:29:34 verify: feature extraction failed: no features detected
+2026/10/02 22:33:23 verify: feature extraction failed: no features detected
+2026/10/02 22:33:23 verify: feature extraction failed: no features detected
+2026/10/02 22:33:24 verify: feature extraction failed: no features detected
+2026/10/02 22:33:27 verify: feature extraction failed: no features detected
+2026/10/02 22:33:27 verify: feature extraction failed: no features detected
+2026/10/02 22:33:27 verify: feature extraction failed: no features detected
+2026/10/02 22:33:32 verify: feature extraction failed: no features detected
+2026/10/02 22:33:32 verify: feature extraction failed: no features detected
+2026/10/02 22:33:33 verify: feature extraction failed: no features detected
+2026/10/02 22:40:19 verify: feature extraction failed: no features detected
+2026/10/02 22:40:20 verify: feature extraction failed: no features detected
+2026/10/02 22:40:20 verify: feature extraction failed: no features detected
+2026/10/02 22:40:23 verify: feature extraction failed: no features detected
+2026/10/02 22:40:29 verify: feature extraction failed: no features detected
+2026/10/02 22:40:29 verify: feature extraction failed: no features detected
+2026/10/02 22:40:29 verify: feature extraction failed: no features detected
+2026/10/02 22:49:09 verify: feature extraction failed: no features detected
+2026/10/02 22:49:09 verify: feature extraction failed: no features detected
+2026/10/02 22:54:35 verify: feature extraction failed: no features detected
+2026/10/02 22:54:41 verify: feature extraction failed: no features detected
+2026/10/02 22:54:41 verify: feature extraction failed: no features detected
+2026/10/02 22:54:42 verify: feature extraction failed: no features detected
+2026/10/02 22:56:20 verify: feature extraction failed: no features detected
+2026/10/02 22:59:18 verify: feature extraction failed: no features detected
+2026/10/02 23:17:11 verify: feature extraction failed: no features detected
+2026/10/02 23:21:17 verify: feature extraction failed: no features detected
+2026/10/02 23:44:44 verify: feature extraction failed: no features detected
+2026/10/02 23:44:50 verify: feature extraction failed: no features detected
+2026/10/02 23:44:50 verify: feature extraction failed: no features detected
+2026/10/02 23:44:50 verify: feature extraction failed: no features detected
+2026/10/02 23:46:16 verify: feature extraction failed: no features detected
+2026/10/02 23:46:16 verify: feature extraction failed: no features detected
+2026/10/02 23:46:19 verify: feature extraction failed: no features detected
+2026/10/02 23:46:20 verify: feature extraction failed: no features detected
+2026/10/02 23:46:25 verify: feature extraction failed: no features detected
+2026/10/02 23:46:25 verify: feature extraction failed: no features detected
+2026/10/02 23:46:25 verify: feature extraction failed: no features detected
+2026/10/02 23:53:04 verify: feature extraction failed: no features detected
+2026/10/02 23:53:17 verify: feature extraction failed: no features detected
+2026/10/02 23:54:13 verify: feature extraction failed: no features detected
+2026/10/02 23:54:17 verify: feature extraction failed: no features detected
+2026/10/02 23:54:23 verify: feature extraction failed: no features detected
+2026/10/02 23:54:23 verify: feature extraction failed: no features detected
+2026/10/02 23:54:23 verify: feature extraction failed: no features detected
+2026/10/02 23:55:04 verify: feature extraction failed: no features detected
+2026/10/02 23:55:08 verify: feature extraction failed: no features detected
+2026/10/02 23:55:15 verify: feature extraction failed: no features detected
+2026/10/02 23:55:15 verify: feature extraction failed: no features detected
+2026/10/02 23:55:45 verify: feature extraction failed: no features detected
+2026/10/02 23:55:55 verify: feature extraction failed: no features detected
+2026/10/02 23:55:55 verify: feature extraction failed: no features detected
+2026/10/02 23:56:47 verify: feature extraction failed: no features detected
+2026/10/02 23:56:47 verify: feature extraction failed: no features detected
+2026/10/02 23:57:14 verify: feature extraction failed: no features detected
+2026/10/02 23:57:14 verify: feature extraction failed: no features detected
+2026/10/03 00:01:53 verify: feature extraction failed: no features detected
+2026/10/03 00:01:53 verify: feature extraction failed: no features detected
+2026/10/03 00:01:53 verify: feature extraction failed: no features detected
+2026/10/03 00:01:53 verify: feature extraction failed: no features detected
+2026/10/03 00:01:53 verify: feature extraction failed: no features detected
+2026/10/03 00:01:53 verify: feature extraction failed: no features detected
+2026/10/03 00:01:53 verify: feature extraction failed: no features detected
+2026/10/03 00:01:53 verify: feature extraction failed: no features detected
+2026/10/03 00:01:53 verify: feature extraction failed: no features detected
+2026/10/03 00:01:53 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:54 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:55 verify: feature extraction failed: no features detected
+2026/10/03 00:01:56 verify: feature extraction failed: no features detected
+2026/10/03 00:01:56 verify: feature extraction failed: no features detected
+2026/10/03 00:01:56 verify: feature extraction failed: no features detected
+2026/10/03 00:01:56 verify: feature extraction failed: no features detected
+2026/10/03 00:01:56 verify: feature extraction failed: no features detected
+2026/10/03 00:01:56 verify: feature extraction failed: no features detected
+2026/10/03 00:01:56 verify: feature extraction failed: no features detected
+2026/10/03 00:01:56 verify: feature extraction failed: no features detected
+2026/10/03 00:01:56 verify: feature extraction failed: no features detected
+2026/10/03 00:01:56 verify: feature extraction failed: no features detected
+2026/10/03 00:01:57 verify: feature extraction failed: no features detected
+2026/10/03 00:01:57 verify: feature extraction failed: no features detected
+2026/10/03 00:01:57 verify: feature extraction failed: no features detected
+2026/10/03 00:23:23 verify: feature extraction failed: no features detected
+2026/10/03 00:23:24 verify: feature extraction failed: no features detected
+2026/10/03 00:28:01 verify: feature extraction failed: no features detected
+2026/10/03 00:28:01 verify: feature extraction failed: no features detected
+2026/10/03 00:28:01 verify: feature extraction failed: no features detected
+2026/10/03 00:39:53 verify: feature extraction failed: no features detected
+2026/10/03 00:41:43 verify: feature extraction failed: no features detected
+2026/10/03 00:42:11 verify: feature extraction failed: no features detected
+2026/10/03 00:42:11 verify: feature extraction failed: no features detected
+2026/10/03 00:42:12 verify: feature extraction failed: no features detected
+2026/10/03 00:42:12 verify: feature extraction failed: no features detected
+2026/10/03 00:42:12 verify: feature extraction failed: no features detected
+2026/10/03 00:42:12 verify: feature extraction failed: no features detected
+2026/10/03 00:42:12 verify: feature extraction failed: no features detected
+2026/10/03 00:42:12 verify: feature extraction failed: no features detected
+2026/10/03 00:42:12 verify: feature extraction failed: no features detected
+2026/10/03 00:42:12 verify: feature extraction failed: no features detected
+2026/10/03 00:42:12 verify: feature extraction failed: no features detected
+2026/10/03 00:42:12 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:13 verify: feature extraction failed: no features detected
+2026/10/03 00:42:14 verify: feature extraction failed: no features detected
+2026/10/03 00:42:14 verify: feature extraction failed: no features detected
+2026/10/03 00:42:14 verify: feature extraction failed: no features detected
+2026/10/03 00:42:14 verify: feature extraction failed: no features detected
+2026/10/03 00:42:14 verify: feature extraction failed: no features detected
+2026/10/03 00:42:14 verify: feature extraction failed: no features detected
+2026/10/03 00:42:14 verify: feature extraction failed: no features detected
+2026/10/03 00:42:15 verify: feature extraction failed: no features detected
+2026/10/03 00:42:15 verify: feature extraction failed: no features detected
+2026/10/03 00:42:15 verify: feature extraction failed: no features detected
+2026/10/03 00:42:15 verify: feature extraction failed: no features detected
+2026/10/03 00:42:15 verify: feature extraction failed: no features detected
+2026/10/03 00:42:15 verify: feature extraction failed: no features detected
+2026/10/03 00:42:15 verify: feature extraction failed: no features detected
+2026/10/03 00:42:15 verify: feature extraction failed: no features detected
+2026/10/03 00:42:15 verify: feature extraction failed: no features detected
+2026/10/03 00:42:16 verify: feature extraction failed: no features detected
+2026/10/03 00:42:16 verify: feature extraction failed: no features detected
+2026/10/03 00:42:16 verify: feature extraction failed: no features detected
+2026/10/03 00:45:20 verify: feature extraction failed: no features detected
+2026/10/03 00:46:44 verify: feature extraction failed: no features detected
+2026/10/03 00:46:44 verify: feature extraction failed: no features detected
+2026/10/03 00:46:45 verify: feature extraction failed: no features detected
+2026/10/03 00:46:45 verify: feature extraction failed: no features detected
+2026/10/03 00:46:45 verify: feature extraction failed: no features detected
+2026/10/03 00:46:49 verify: feature extraction failed: no features detected
+2026/10/03 00:46:54 verify: feature extraction failed: no features detected
+2026/10/03 00:46:54 verify: feature extraction failed: no features detected
+2026/10/03 00:46:55 verify: feature extraction failed: no features detected
+2026/10/03 00:51:44 verify: feature extraction failed: no features detected
+2026/10/03 00:51:44 verify: feature extraction failed: no features detected
+2026/10/03 00:57:54 verify: feature extraction failed: no features detected
+2026/10/03 00:57:54 verify: feature extraction failed: no features detected
+2026/10/03 01:01:10 verify: feature extraction failed: no features detected
+2026/10/03 01:01:14 verify: feature extraction failed: no features detected
+2026/10/03 01:01:20 verify: feature extraction failed: no features detected
+2026/10/03 01:01:20 verify: feature extraction failed: no features detected
+2026/10/03 01:01:20 verify: feature extraction failed: no features detected
+2026/10/03 01:07:02 verify: feature extraction failed: no features detected
+2026/10/03 01:21:08 verify: feature extraction failed: no features detected
+2026/10/03 01:21:34 verify: feature extraction failed: no features detected
+2026/10/03 01:37:05 verify: feature extraction failed: no features detected
+2026/10/03 01:37:06 verify: feature extraction failed: no features detected
+2026/10/03 01:37:06 verify: feature extraction failed: no features detected
+2026/10/03 01:37:09 verify: feature extraction failed: no features detected
+2026/10/03 01:37:09 verify: feature extraction failed: no features detected
+2026/10/03 01:37:09 verify: feature extraction failed: no features detected
+2026/10/03 01:37:09 verify: feature extraction failed: no features detected
+2026/10/03 01:37:14 verify: feature extraction failed: no features detected
+2026/10/03 01:37:15 verify: feature extraction failed: no features detected
+2026/10/03 01:37:15 verify: feature extraction failed: no features detected
+2026/10/03 01:39:31 verify: feature extraction failed: no features detected
+2026/10/03 01:39:44 verify: feature extraction failed: no features detected
+2026/10/03 01:40:22 verify: feature extraction failed: no features detected
+2026/10/03 01:40:26 verify: feature extraction failed: no features detected
+2026/10/03 01:40:33 verify: feature extraction failed: no features detected
+2026/10/03 01:40:33 verify: feature extraction failed: no features detected
+2026/10/03 01:40:33 verify: feature extraction failed: no features detected
+2026/10/03 01:40:46 verify: feature extraction failed: no features detected
+2026/10/03 01:49:55 verify: feature extraction failed: no features detected
+2026/10/03 01:49:55 verify: feature extraction failed: no features detected
+2026/10/03 01:51:30 verify: feature extraction failed: no features detected
+2026/10/03 01:54:39 verify: feature extraction failed: no features detected
+2026/10/03 01:56:04 verify: feature extraction failed: no features detected
+2026/10/03 01:56:04 verify: feature extraction failed: no features detected
+2026/10/03 01:56:04 verify: feature extraction failed: no features detected
+2026/10/03 01:57:39 verify: feature extraction failed: no features detected
+2026/10/03 01:57:39 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:40 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:41 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:42 verify: feature extraction failed: no features detected
+2026/10/03 01:57:43 verify: feature extraction failed: no features detected
+2026/10/03 01:57:44 verify: feature extraction failed: no features detected
+2026/10/03 01:57:44 verify: feature extraction failed: no features detected
+2026/10/03 01:57:44 verify: feature extraction failed: no features detected
+2026/10/03 01:58:25 verify: feature extraction failed: no features detected
+2026/10/03 01:58:25 verify: feature extraction failed: no features detected
+2026/10/03 01:58:25 verify: feature extraction failed: no features detected
+2026/10/03 01:58:25 verify: feature extraction failed: no features detected
+2026/10/03 01:58:35 verify: feature extraction failed: no features detected
+2026/10/03 01:58:35 verify: feature extraction failed: no features detected
+2026/10/03 02:00:53 verify: feature extraction failed: no features detected
+2026/10/03 02:00:53 verify: feature extraction failed: no features detected
+2026/10/03 02:02:53 verify: feature extraction failed: no features detected
+2026/10/03 02:04:17 verify: feature extraction failed: no features detected
+2026/10/03 02:04:27 verify: feature extraction failed: no features detected
+2026/10/03 02:04:27 verify: feature extraction failed: no features detected
+2026/10/03 02:07:01 verify: feature extraction failed: no features detected
+2026/10/03 02:07:41 verify: feature extraction failed: no features detected
+2026/10/03 02:07:41 verify: feature extraction failed: no features detected
+    dataset_e2e_test.go:349: 
+        === E2E GENERATED DATASET MATRIX ===
+        Manifest : /home/waizbart/projects/aletheia-api/testdata/generated/manifest.json
+        Bases    : 993 certified  0 failed
+        Samples  : 53622 evaluated
+        
+        family                              TP     FP     FN     TN     pass%  first-wrong
+        ----------------------------------------------------------------------------------------------------
+        brightness                        3843      0    129      0     96.8%  confidence=borderline want=match got=no-match status=404 certified=false
+        color_invert                         0      0      0    993    100.0%  —
+        content_overlay                      0      0      0   3972    100.0%  —
+        crop_border                        798      0   2181    993     45.1%  confidence=borderline want=match got=no-match status=404 certified=false
+        different_image                      0      0      0    993    100.0%  —
+        downscale                         1319      0   3646      0     26.6%  confidence=borderline want=match got=no-match status=404 certified=false
+        format_change                     3932      0     40      0     99.0%  confidence=borderline want=match got=no-match status=404 certified=false
+        grayscale                            0    217      0    776     78.1%  confidence=borderline want=reject got=match status=200 certified=true
+        heavy_crop                           0      0      0   2979    100.0%  —
+        hue_shift                            0    546      0   3426     86.3%  confidence=borderline want=reject got=match status=200 certified=true
+        jpeg_recompress                   5785      0    173      0     97.1%  confidence=high want=match got=no-match status=404 certified=false
+        localized_recolor                    0    284      0    709     71.4%  confidence=borderline want=reject got=match status=200 certified=true
+        noise_light                       1951      0     35      0     98.2%  confidence=high want=match got=no-match status=404 certified=false
+        p3_as_srgb                         834      0    159      0     84.0%  confidence=borderline want=match got=no-match status=404 certified=false
+        rotate_cardinal                   1734      0   1245      0     58.2%  confidence=borderline want=match got=no-match status=404 certified=false
+        rotate_small                       771      0   2208      0     25.9%  confidence=borderline want=match got=no-match status=404 certified=false
+        saturation_boost                     0    837      0   1149     57.9%  confidence=borderline want=reject got=match status=200 certified=true
+        sepia                                0      3      0    990     99.7%  confidence=high want=reject got=match status=200 certified=true
+        sharpen                            981      0     12      0     98.8%  confidence=high want=match got=no-match status=404 certified=false
+        upscale                           1625      0    361      0     81.8%  confidence=borderline want=match got=no-match status=404 certified=false
+        whatsapp_like                      976      0     17      0     98.3%  confidence=high want=match got=no-match status=404 certified=false
+        
+        All entries      TP=24549 FP=1887 FN=10206 TN=16980  Acc=0.774 Precision=0.929 Recall=0.706 F1=0.802
+        High-CI only     TP=8783 FP=3 FN=154 TN=7941  Acc=0.991 Precision=1.000 Recall=0.983 F1=0.991
+        Borderline only  TP=15766 FP=1884 FN=10052 TN=9039  Acc=0.675 Precision=0.893 Recall=0.611 F1=0.725
+        
+    dataset_e2e_test.go:359: e2e report written to /home/waizbart/projects/aletheia-api/testdata/generated/e2e_report.json
+--- PASS: TestE2E_GeneratedDataset_Matrix (13849.40s)
+PASS
+ok  	github.com/waizbart/aletheia-api/tests/e2e	13849.656s
