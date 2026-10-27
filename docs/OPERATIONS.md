@@ -51,9 +51,24 @@ and counted *after* it succeeds, so a rejected capture never reaches an
 invoice. A lost usage count never fails an operation that already succeeded —
 an under-count is a billing problem, a failed capture is a customer problem.
 
+Video is metered as `attested_video_capture`, separate from
+`attested_capture`, because decoding a whole file costs orders of magnitude
+more than decoding one image. The developer plan allows 50 a month against 500
+image captures; growth and enterprise are uncapped for both.
+
+On the video path the upload is parsed *before* the allowance is checked, which
+is the reverse of everywhere else. The media kind lives in the multipart part
+header, so there is no way to know which allowance applies until the part has
+been read. The size ceilings still bound what an over-quota tenant can make the
+server buffer.
+
 Anonymous verification is free and never counted. Presenting a key on the same
 route opts into metered use, which is how the free tier stays impossible to
-break by accident.
+break by accident. Video verification is additionally size-tiered: an
+unauthenticated caller gets 32 MB and an authenticated one 256 MB, because a
+256 MB decode per anonymous request is a denial of service offered to the
+internet. Verifying by hash stays free and unrestricted, and it is the cheap
+path.
 
 Counters live in `usage_counters`, keyed by `(org, operation, UTC month)` and
 incremented with an upsert so concurrent captures cannot lose a count.
@@ -129,12 +144,51 @@ SELECT id, tx_hash, leaf_count, created_at
 RATE_LIMIT_RPS            sustained requests per second per client IP (default 20)
 RATE_LIMIT_BURST          burst allowance on top (default 40)
 MAX_CONCURRENT_REQUESTS   in-flight cap (default 32)
+VIDEO_MAX_UPLOAD_BYTES    byte ceiling for a video upload (default 256 MB)
+VIDEO_MAX_DURATION_MS     duration ceiling, a compile-time 2 min today
+VIDEO_MAX_CONCURRENCY     concurrent decodes (default: half the cores)
+VIDEO_TEMP_DIR            where the decoder's spill files go
 ```
 
 The concurrency cap is the practical bound on peak memory: upload routes decode
 whole images, so a handful of concurrent 100 MB uploads is otherwise enough to
 exhaust the process. Requests over the cap fail fast with 503 rather than
 queueing behind a full buffer.
+
+### Video decoding
+
+`MAX_CONCURRENT_REQUESTS` bounds requests, not decodes, so video has its own
+semaphore inside the extractor. It is acquired before the upload is spilled
+rather than before the decode, because otherwise every concurrent request
+writes its full payload to disk before any bound applies.
+
+**Temp disk.** OpenCV has no `IMDecode` equivalent for video —
+`VideoCaptureFile` takes a path — so an uploaded video exists on disk while it
+is being decoded and is removed when the request ends. Budget
+`VIDEO_MAX_CONCURRENCY × VIDEO_MAX_UPLOAD_BYTES` and then **double it**: Go's
+multipart parser already spills parts over 32 MB to `os.TempDir()` before this
+process sees them. The compose file mounts a sized `tmpfs` for this.
+
+Spill files are named from a fixed pattern and never from the uploaded
+filename, because FFmpeg's `avformat_open_input` resolves `proto:` prefixes
+inside a path. Startup removes spill files older than an hour: `Close` deletes
+them on every ordinary path but cannot run after a `SIGKILL` or after OpenCV
+takes the process down.
+
+**Decoder exposure.** `libavcodec` is a large C surface being fed untrusted
+bytes. The duration and resolution ceilings reduce exposure but do not remove
+it — reading the container header already instantiates a decoder context — so
+**no in-process mitigation here is complete**. Run the API under an automatic
+restart policy with a memory cgroup limit; a seccomp profile is worth the
+effort; moving the decode into a subprocess is the real fix and is not done.
+This service already lives with this class of risk: `minFeatureDimension`
+exists because OpenCV reads out of bounds on a tiny image and takes the whole
+process down with it.
+
+**Slow uploaders.** `ReadTimeout` and `WriteTimeout` are deliberately unset on
+the server, for 100 MB uploads and for the dashboard's SSE stream. The video
+path sets a per-request read deadline instead, so a slow client cannot hold a
+decode slot open indefinitely without disturbing either.
 
 ## Runbook
 

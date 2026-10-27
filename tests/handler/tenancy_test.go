@@ -33,11 +33,15 @@ func (m *mockAuthenticator) Execute(ctx context.Context, plaintext string) (*dom
 
 type mockQuota struct {
 	checkErr error
+	checked  []domain.Operation
 	recorded []domain.Operation
 	recordFn func(ctx context.Context, orgID string, op domain.Operation) error
 }
 
-func (m *mockQuota) Check(context.Context, *domain.Org, domain.Operation) error { return m.checkErr }
+func (m *mockQuota) Check(_ context.Context, _ *domain.Org, op domain.Operation) error {
+	m.checked = append(m.checked, op)
+	return m.checkErr
+}
 
 func (m *mockQuota) Record(ctx context.Context, orgID string, op domain.Operation) error {
 	m.recorded = append(m.recorded, op)
@@ -126,17 +130,25 @@ func okAuthenticator() *mockAuthenticator {
 // captureRequest builds the multipart body the SDK sends.
 func captureRequest(t *testing.T, fields map[string]string) *http.Request {
 	t.Helper()
+	return captureRequestWithMedia(t, fields, "capture.jpg", "image/jpeg", []byte("image bytes"))
+}
+
+// captureRequestWithMedia is captureRequest with the media part under the
+// caller's control, so the video path can be exercised with real container
+// bytes.
+func captureRequestWithMedia(t *testing.T, fields map[string]string, filename, contentType string, body []byte) *http.Request {
+	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 
 	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", `form-data; name="file"; filename="capture.jpg"`)
-	h.Set("Content-Type", "image/jpeg")
+	h.Set("Content-Disposition", `form-data; name="file"; filename="`+filename+`"`)
+	h.Set("Content-Type", contentType)
 	pw, err := mw.CreatePart(h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Fprint(pw, "image bytes")
+	pw.Write(body)
 
 	for k, v := range fields {
 		if err := mw.WriteField(k, v); err != nil {
@@ -693,7 +705,7 @@ func TestHandleNonce_Failure(t *testing.T) {
 // TestLegacyCertify_DisabledByDefault pins the default that makes the product
 // claim true: an upload nobody vouched for does not become a certificate.
 func TestLegacyCertify_DisabledByDefault(t *testing.T) {
-	h := handler.NewCertificateHandler(&mockCertifier{}, &mockVerifier{}, &mockDeleter{}, &mockQuota{}, false)
+	h := handler.NewCertificateHandler(&mockCertifier{}, &mockVerifier{}, nil, &mockDeleter{}, &mockQuota{}, false)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux, nil, nil)
 
@@ -715,7 +727,7 @@ func TestVerify_MeteredOnlyWhenAuthenticated(t *testing.T) {
 
 	t.Run("anonymous verification is free", func(t *testing.T) {
 		quota := &mockQuota{}
-		h := handler.NewCertificateHandler(&mockCertifier{}, verifier, &mockDeleter{}, quota, false)
+		h := handler.NewCertificateHandler(&mockCertifier{}, verifier, nil, &mockDeleter{}, quota, false)
 		mux := http.NewServeMux()
 		h.RegisterRoutes(mux, nil, nil)
 
@@ -732,7 +744,7 @@ func TestVerify_MeteredOnlyWhenAuthenticated(t *testing.T) {
 
 	t.Run("authenticated verification is metered", func(t *testing.T) {
 		quota := &mockQuota{}
-		h := handler.NewCertificateHandler(&mockCertifier{}, verifier, &mockDeleter{}, quota, false)
+		h := handler.NewCertificateHandler(&mockCertifier{}, verifier, nil, &mockDeleter{}, quota, false)
 		mux := http.NewServeMux()
 		h.RegisterRoutes(mux, nil, nil)
 
@@ -776,7 +788,7 @@ func TestLegacyCertify_WhenEnabled(t *testing.T) {
 		}}, nil
 	}}
 
-	h := handler.NewCertificateHandler(certifier, &mockVerifier{}, &mockDeleter{}, &mockQuota{}, true)
+	h := handler.NewCertificateHandler(certifier, &mockVerifier{}, nil, &mockDeleter{}, &mockQuota{}, true)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux, nil, handler.APIKeyAuth(okAuthenticator()))
 
@@ -813,7 +825,7 @@ func TestLegacyCertify_AnonymousKeepsTheHeaderLabel(t *testing.T) {
 		return nil, domain.ErrAlreadyCertified
 	}}
 
-	h := handler.NewCertificateHandler(certifier, &mockVerifier{}, &mockDeleter{}, nil, true)
+	h := handler.NewCertificateHandler(certifier, &mockVerifier{}, nil, &mockDeleter{}, nil, true)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux, nil, nil)
 
@@ -836,7 +848,7 @@ func TestVerify_NoQuotaCheckerConfigured(t *testing.T) {
 			ID: "cert-1", ContentHash: strings.Repeat("c", 64), CreatedAt: time.Now(),
 		}}, nil
 	}}
-	h := handler.NewCertificateHandler(&mockCertifier{}, verifier, &mockDeleter{}, nil, false)
+	h := handler.NewCertificateHandler(&mockCertifier{}, verifier, nil, &mockDeleter{}, nil, false)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux, nil, nil)
 
@@ -860,7 +872,7 @@ func TestCertDTO_IncludesCaptureProvenance(t *testing.T) {
 			DeviceID: "device-1", CapturedAt: &capturedAt, CreatedAt: capturedAt,
 		}}, nil
 	}}
-	h := handler.NewCertificateHandler(&mockCertifier{}, verifier, &mockDeleter{}, nil, false)
+	h := handler.NewCertificateHandler(&mockCertifier{}, verifier, nil, &mockDeleter{}, nil, false)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux, nil, nil)
 

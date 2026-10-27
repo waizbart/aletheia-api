@@ -139,7 +139,7 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 	})
 
 	t.Run("exact phash returns the cert at distance 0", func(t *testing.T) {
-		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{refPHash}, domain.MaxPHashDistance, 10)
+		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{refPHash}, domain.MediaKindImage, domain.MaxPHashDistance, 10)
 		if err != nil {
 			t.Fatalf("find: %v", err)
 		}
@@ -154,7 +154,7 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 	t.Run("single byte flip still recovered via the unaffected bands", func(t *testing.T) {
 		nearPHash := refPHash
 		nearPHash[5] ^= 0xFF // 8 bits flipped, but only band 5 differs.
-		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{nearPHash}, domain.MaxPHashDistance, 10)
+		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{nearPHash}, domain.MediaKindImage, domain.MaxPHashDistance, 10)
 		if err != nil {
 			t.Fatalf("find: %v", err)
 		}
@@ -166,7 +166,7 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 	t.Run("rotations: min hamming over candidate variants is used", func(t *testing.T) {
 		// First variant intentionally far (no band collision); the second
 		// variant matches exactly. The repository must use the minimum.
-		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{farPHashUnrelated(), refPHash}, domain.MaxPHashDistance, 10)
+		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{farPHashUnrelated(), refPHash}, domain.MediaKindImage, domain.MaxPHashDistance, 10)
 		if err != nil {
 			t.Fatalf("find: %v", err)
 		}
@@ -183,7 +183,7 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 		for i := 1; i < 32; i++ {
 			probe[i] ^= 0xFF // flips 8*31 = 248 bits
 		}
-		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{probe}, 10, 10)
+		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{probe}, domain.MediaKindImage, 10, 10)
 		if err != nil {
 			t.Fatalf("find: %v", err)
 		}
@@ -195,7 +195,7 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 	t.Run("topK limits the result count", func(t *testing.T) {
 		// Both refCert and farCert exist; query both phashes so each is its
 		// own exact match. topK=1 must return only the closest.
-		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{refPHash, farPHash}, domain.MaxPHashDistance, 1)
+		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{refPHash, farPHash}, domain.MediaKindImage, domain.MaxPHashDistance, 1)
 		if err != nil {
 			t.Fatalf("find: %v", err)
 		}
@@ -241,7 +241,7 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 
 		// The candidate query used by verify must hydrate the grid too — that
 		// is where Match reads it from.
-		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{refPHash}, domain.MaxPHashDistance, 10)
+		hits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{refPHash}, domain.MediaKindImage, domain.MaxPHashDistance, 10)
 		if err != nil {
 			t.Fatalf("find candidates: %v", err)
 		}
@@ -266,6 +266,80 @@ func TestPostgresLSH_FindCandidatesByPHashes(t *testing.T) {
 		}
 		if got.Signature.HasColorGrid() {
 			t.Fatal("cert saved without grid must not report HasColorGrid")
+		}
+	})
+
+	t.Run("media kind partitions the candidate query", func(t *testing.T) {
+		// A video certificate whose anchor frame has exactly the reference
+		// pHash. It must never surface for an image query: the two media hash
+		// in different metric spaces, and answering an image upload with this
+		// row would hand the caller a content_hash it cannot reproduce.
+		secondFrame := refPHash
+		secondFrame[5] ^= 0xFF
+
+		videoCert := &domain.Certificate{
+			ContentHash: "video-content-hash-" + uniqueSuffix(t),
+			PHash:       &refPHash,
+			MediaKind:   domain.MediaKindVideo,
+			DurationMs:  8_000,
+			Video: &domain.VideoSignature{
+				FramePHashes: [][32]byte{refPHash, secondFrame},
+				AnchorIndex:  1,
+				DurationMs:   8_000,
+			},
+			Registrant: "tester",
+		}
+		if err := repo.Save(ctx, videoCert); err != nil {
+			t.Fatalf("save video cert: %v", err)
+		}
+
+		imageHits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{refPHash}, domain.MediaKindImage, domain.MaxPHashDistance, 10)
+		if err != nil {
+			t.Fatalf("image candidates: %v", err)
+		}
+		for _, h := range imageHits {
+			if h.ID == videoCert.ID {
+				t.Fatal("a video certificate leaked into an image candidate query")
+			}
+		}
+
+		videoHits, err := repo.FindCandidatesByPHashes(ctx, [][32]byte{refPHash}, domain.MediaKindVideo, domain.MaxPHashDistance, 10)
+		if err != nil {
+			t.Fatalf("video candidates: %v", err)
+		}
+		var found *domain.Certificate
+		for _, h := range videoHits {
+			if h.ID == videoCert.ID {
+				found = h
+			}
+			if h.MediaKind != domain.MediaKindVideo {
+				t.Errorf("video query returned a %q certificate", h.MediaKind)
+			}
+		}
+		if found == nil {
+			t.Fatal("the video certificate did not surface for a video query")
+		}
+		if found.Video == nil || found.Video.AnchorIndex != 1 || len(found.Video.FramePHashes) != 2 {
+			t.Fatalf("video signature did not round-trip: %+v", found.Video)
+		}
+		if found.Video.FramePHashes[0] != refPHash || found.Video.FramePHashes[1] != secondFrame {
+			t.Fatal("frame pHashes changed across save/load")
+		}
+		if found.DurationMs != 8_000 {
+			t.Errorf("duration = %d, want 8000", found.DurationMs)
+		}
+	})
+
+	t.Run("legacy rows read back as images", func(t *testing.T) {
+		got, err := repo.FindByHash(ctx, refCert.ContentHash)
+		if err != nil {
+			t.Fatalf("find by hash: %v", err)
+		}
+		if got.MediaKind != domain.MediaKindImage {
+			t.Errorf("MediaKind = %q, want %q", got.MediaKind, domain.MediaKindImage)
+		}
+		if got.Video != nil {
+			t.Errorf("an image certificate carried a video signature: %+v", got.Video)
 		}
 	})
 }

@@ -32,9 +32,15 @@ import (
 var testdataDir = testdata.Curated("aletheia")
 
 type e2eEnv struct {
-	server  *httptest.Server
-	db      *sql.DB
-	cleanup func()
+	server *httptest.Server
+	db     *sql.DB
+	// certifyVideo is reached directly rather than over HTTP. Video
+	// certification is attested-only by design — there is no unattested video
+	// route — so the suite drives the use case and then verifies the result
+	// through the real endpoint, which is the half that matters here.
+	certifyVideo *usecase.CertifyVideoUseCase
+	videos       *feature.VideoExtractor
+	cleanup      func()
 }
 
 // fakeChain stands in for the anchor contract: the e2e suite exercises
@@ -69,12 +75,19 @@ func setupE2E(t *testing.T) *e2eEnv {
 	resetState(t, ctx, db)
 
 	extractor := feature.NewOpenCVExtractor()
+	videoExtractor := feature.NewVideoExtractor(feature.VideoLimits{
+		MaxBytes:    64 << 20,
+		TempDir:     t.TempDir(),
+		Concurrency: 2,
+	})
 	certRepo := repository.NewPostgresCertificateRepo(db)
 
 	certifyUC := usecase.NewCertifyUseCase(certRepo, extractor)
 	verifyUC := usecase.NewVerifyUseCase(certRepo, extractor)
+	certifyVideoUC := usecase.NewCertifyVideoUseCase(certRepo, videoExtractor)
+	verifyVideoUC := usecase.NewVerifyVideoUseCase(certRepo, videoExtractor, extractor)
 	deleteUC := usecase.NewDeleteUseCase(certRepo)
-	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, deleteUC, nil, true)
+	certHandler := handler.NewCertificateHandler(certifyUC, verifyUC, verifyVideoUC, deleteUC, nil, true)
 
 	mux := http.NewServeMux()
 	certHandler.RegisterRoutes(mux, nil, nil)
@@ -83,13 +96,16 @@ func setupE2E(t *testing.T) *e2eEnv {
 	cleanup := func() {
 		server.Close()
 		extractor.Close()
+		videoExtractor.Close()
 		_ = db.Close()
 	}
 
 	return &e2eEnv{
-		server:  server,
-		db:      db,
-		cleanup: cleanup,
+		server:       server,
+		db:           db,
+		certifyVideo: certifyVideoUC,
+		videos:       videoExtractor,
+		cleanup:      cleanup,
 	}
 }
 

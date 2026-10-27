@@ -208,9 +208,43 @@ All generated data lives under `testdata/generated/` which is git-ignored.
 | `tests/feature/opencv_extractor_test.go` (integration) | Curated golden oracle | `testdata/curated/aletheia/` |
 | `tests/feature/dataset_matrix_test.go` (integration) | Broad matrix, smoke-base fallback | Manifest when present, else `curated/smoke-base/` |
 | `tests/e2e/api_test.go` (e2e) | Full API round-trip | `testdata/curated/aletheia/` |
+| `tests/feature/video_extractor_test.go` (integration) | Video sampling, anchor choice, re-encode survival | Clips generated in process |
+| `tests/feature/video_anchor_match_test.go` (integration) | The anchor frame's gates across eight re-encodes | Clips generated in process |
+| `tests/e2e/video_e2e_test.go` (e2e) | Certify then verify a whole video over HTTP | Clips generated in process |
 
 The **curated golden tests are never replaced** — they remain the fast, always-on, offline
 regression bed for the documented boundary cases. The generated dataset adds scale.
+
+## Video is not in the matrix yet
+
+Video fixtures are **generated in process** rather than committed, and they are
+deliberately outside this taxonomy for now.
+
+Generating them is not a shortcut: the painter is a function of normalized
+time, so a 50-frame clip and a 60-frame clip show the same scene at the same
+instants, which is exactly what a frame-rate transcode does and what a
+committed pair of files could not express as cleanly. H.264 is exercised where
+the encoder exists and skipped where it does not, with MJPEG as the portable
+floor — `VideoWriterFile` reports a missing codec through `IsOpened` rather
+than through an error, so every helper checks it.
+
+What is missing is the matrix. `transform.Registry()` should eventually gain
+`video_reencode`, `video_scale` and `video_fps` as identity-preserving rungs
+and `video_trim` as an identity-breaking one. That is **not** done here, and
+the reason is worth recording: `BuilderFor` hard-fails on an entry it cannot
+build (`dataset_matrix_test.go` calls `t.Fatalf`), so registry entries without
+builders would break the image matrix that already works. Half-wired taxonomy
+is worse than none. Builders need a video encoder in `builders.go`, and putting
+video behind the precision ≥ 0.95 / recall ≥ 0.75 gate without a real corpus
+of recorded footage would be theatre rather than evidence.
+
+In the meantime the thresholds are calibrated by tests that **report** rather
+than gate, in the way `MaxColorMean` and `MinAreaCoverage` were derived:
+`TestVideoCalibration_FramePHashDistances` prints the per-slot Hamming
+distribution, and `TestVideoExtractor_AnchorFrameMatchesAcrossReencoding`
+prints every gate across eight re-encodes. Both sets of measured numbers are
+copied into the doc comments of the constants they justify, along with the
+caveat that the corpus is synthetic.
 
 ## Testdata consolidation
 

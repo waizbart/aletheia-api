@@ -9,10 +9,11 @@ import (
 )
 
 type CertificateHandler struct {
-	certify Certifier
-	verify  Verifier
-	delete  Deleter
-	quota   QuotaChecker
+	certify     Certifier
+	verify      Verifier
+	verifyVideo VideoVerifier
+	delete      Deleter
+	quota       QuotaChecker
 
 	// allowUnattested keeps the pre-attestation upload path open. It defaults
 	// off: an upload nobody vouched for is exactly what attested capture
@@ -21,10 +22,11 @@ type CertificateHandler struct {
 	allowUnattested bool
 }
 
-func NewCertificateHandler(certify Certifier, verify Verifier, delete Deleter, quota QuotaChecker, allowUnattested bool) *CertificateHandler {
+func NewCertificateHandler(certify Certifier, verify Verifier, verifyVideo VideoVerifier, delete Deleter, quota QuotaChecker, allowUnattested bool) *CertificateHandler {
 	return &CertificateHandler{
 		certify:         certify,
 		verify:          verify,
+		verifyVideo:     verifyVideo,
 		delete:          delete,
 		quota:           quota,
 		allowUnattested: allowUnattested,
@@ -63,7 +65,10 @@ func (h *CertificateHandler) handleCertify(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	file, ok := parseMediaUpload(w, r)
+	// The legacy unattested route stays image-only. It exists as a migration
+	// path for integrations that predate the SDK, and widening it to video
+	// would mean minting video certificates that prove nothing about origin.
+	file, _, ok := parseMediaUpload(w, r, imageOnlyLimits())
 	if !ok {
 		return
 	}
@@ -113,16 +118,33 @@ func (h *CertificateHandler) handleVerifyByHash(w http.ResponseWriter, r *http.R
 	writeVerifyResponse(w, out)
 }
 
+// handleVerifyByFile accepts an image or a video and routes it to the matching
+// pipeline. The caller does not have to say which, and does not have to know:
+// verification is the open half of the product.
 func (h *CertificateHandler) handleVerifyByFile(w http.ResponseWriter, r *http.Request) {
-	file, ok := parseMediaUpload(w, r)
+	authenticated := OrgFromContext(r.Context()) != nil
+
+	file, kind, ok := parseMediaUpload(w, r, verifyLimits(authenticated))
 	if !ok {
 		return
 	}
 	defer file.Close()
 
-	out, err := h.verify.Execute(r.Context(), usecase.VerifyInput{Content: file})
+	var (
+		out *usecase.VerifyOutput
+		err error
+	)
+	if kind == domain.MediaKindVideo {
+		if h.verifyVideo == nil {
+			writeError(w, http.StatusUnsupportedMediaType, "video verification is not enabled on this deployment")
+			return
+		}
+		out, err = h.verifyVideo.Execute(r.Context(), usecase.VerifyVideoInput{Content: file})
+	} else {
+		out, err = h.verify.Execute(r.Context(), usecase.VerifyInput{Content: file})
+	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeMediaError(w, err)
 		return
 	}
 

@@ -144,9 +144,13 @@ erDiagram
     CERTIFICATES {
         uuid id PK
         text content_hash UK "SHA-256 hex"
-        bytea phash "32 bytes"
+        text media_kind "image|video; particiona a busca perceptual"
+        bytea phash "32 bytes; em vídeo é o do quadro-âncora"
         bytea orb_descriptors
         bytea color_grid "128x128x3 médias LAB"
+        int duration_ms "vídeo"
+        bytea frame_phashes "vídeo: 32 quadros x 32 bytes"
+        smallint anchor_index "vídeo: qual quadro carrega a assinatura"
         bytea feature_commitment "32 bytes"
         uuid org_id FK
         uuid device_id FK "nulo = upload não atestado"
@@ -177,8 +181,29 @@ erDiagram
 tuplas `(band_idx, band_value)`, e a verificação faz `UNNEST` das bandas das
 rotações candidatas antes do recheque Hamming exato de 256 bits.
 
-Nenhuma imagem é armazenada em lugar nenhum — só a grade de cores e os
-descritores ORB, que bastam ao matcher.
+**Vídeo mora na mesma tabela**, e é por isso que o worker de ancoragem, a folha
+Merkle e a busca exata por hash não mudaram: `certificateLeaf` lê só
+`content_hash` e `feature_commitment`, que uma linha de vídeo já carrega. O
+quadro-âncora preenche as colunas perceptuais existentes e é indexado em
+`phash_bands` como qualquer imagem, o que é justamente o que permite ao matcher
+de imagem rodar sobre vídeo sem alteração.
+
+`frame_phashes` é coluna e não tabela de propósito: são no máximo 1 KB, sempre
+lidos como unidade, e nada consulta um quadro isolado porque busca por recorte
+está fora de escopo. Promover para tabela depois é uma migração, não uma
+reescrita.
+
+`media_kind` particiona a busca de candidatos. Não é cosmético: pHashes de
+quadro são calculados depois de um redimensionamento por área que imagens não
+recebem, então os dois vivem em espaços métricos diferentes e comparar entre
+eles dá ruído. Sem a partição, um still extraído de um vídeo certificado
+também "verificaria" e devolveria um certificado cujo `content_hash` o cliente
+não consegue reproduzir do que enviou.
+
+Nenhuma mídia é armazenada em lugar nenhum — só a grade de cores, os
+descritores ORB e a sequência de pHashes, que bastam ao matcher. O vídeo existe
+num arquivo temporário enquanto é decodificado e é removido ao fim da
+requisição.
 
 ## Integração com a blockchain
 

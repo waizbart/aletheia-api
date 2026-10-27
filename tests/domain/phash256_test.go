@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"image/png"
 	"testing"
 
 	"github.com/waizbart/aletheia-api/internal/domain"
@@ -43,6 +44,32 @@ func TestPHash256_StableAcrossCompression(t *testing.T) {
 	d := domain.Hamming256(*low, *high)
 	if d > domain.MaxPHashDistance {
 		t.Fatalf("distance too large for same image: got %d (max %d)", d, domain.MaxPHashDistance)
+	}
+}
+
+// PNG is lossless, so hashing the decoded pixels and hashing an encoding of
+// them must agree exactly. The video pipeline hashes decoded frames directly
+// and commits those values on chain, so any drift between the two entry points
+// would make a commitment irreproducible off this machine.
+func TestPHash256FromImage_MatchesEncodedInput(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 96, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 96; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x * 2), G: uint8(y * 3), B: uint8((x + y) % 251), A: 255})
+		}
+	}
+
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+
+	fromBytes := domain.PHash256(encoded.Bytes())
+	if fromBytes == nil {
+		t.Fatal("expected a hash from the encoded image")
+	}
+	if fromImage := domain.PHash256FromImage(img); fromImage != *fromBytes {
+		t.Fatalf("decoded-frame hash %x differs from encoded-input hash %x", fromImage, *fromBytes)
 	}
 }
 
