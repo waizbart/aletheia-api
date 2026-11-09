@@ -154,7 +154,7 @@ func main() {
 	adminHandler.RegisterRoutes(mux, admin)
 	handler.RegisterDocsRoutes(mux)
 	handler.RegisterHealthRoutes(mux)
-	handler.RegisterObservabilityRoutes(mux, collector, thumbnailUC, admin)
+	handler.RegisterObservabilityRoutes(mux, collector, thumbnailUC)
 
 	corsOrigins := strings.Split(config.EnvOrDefault("CORS_ALLOWED_ORIGINS", "*"), ",")
 	limiter := handler.NewRateLimiter(

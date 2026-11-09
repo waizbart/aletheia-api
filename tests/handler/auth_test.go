@@ -135,7 +135,7 @@ func TestRouteGuards(t *testing.T) {
 		true,
 	)
 	certs.RegisterRoutes(mux, handler.AdminAuth(token), nil)
-	handler.RegisterObservabilityRoutes(mux, observability.NewCollector(4), nil, handler.AdminAuth(token))
+	handler.RegisterObservabilityRoutes(mux, observability.NewCollector(4), nil)
 
 	tests := []struct {
 		name         string
@@ -152,17 +152,17 @@ func TestRouteGuards(t *testing.T) {
 			wantWithAuth: http.StatusNoContent,
 		},
 		{
-			name:         "dashboard requires admin",
+			name:         "dashboard stays public",
 			method:       http.MethodGet,
 			target:       "/observability",
-			guarded:      true,
+			guarded:      false,
 			wantWithAuth: http.StatusOK,
 		},
 		{
-			name:         "trace history requires admin",
+			name:         "trace history stays public",
 			method:       http.MethodGet,
 			target:       "/observability/traces",
-			guarded:      true,
+			guarded:      false,
 			wantWithAuth: http.StatusOK,
 		},
 		{

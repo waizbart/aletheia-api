@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// AdminAuth guards privileged routes (certificate deletion, the observability
-// dashboard) with a static bearer token.
+// AdminAuth guards privileged routes (certificate deletion, org and API-key
+// management) with a static bearer token.
 //
 // It fails closed: an empty token rejects every request rather than disabling
 // the guard. An operator who forgets to set ADMIN_API_TOKEN gets a locked door,

@@ -375,7 +375,7 @@ em `internal/domain/video.go`.
 
 ## Observabilidade
 
-- **Painel ao vivo** em `/observability` (atrás do token de admin): acompanha
+- **Painel ao vivo** em `/observability` (público, sem token): acompanha
   em tempo real cada etapa do pipeline via SSE, com valores reais, latência por
   etapa e a decisão de verificação por candidato.
 - **Spans OpenTelemetry** exportados via OTLP/HTTP para o Jaeger. Com
