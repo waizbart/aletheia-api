@@ -57,8 +57,20 @@ func runManifestEval(t *testing.T, manifestPath string) {
 		sig   *domain.FeatureSignature
 	}
 	bases := make(map[string]baseEntry)
+	// A base the ORB extractor rejects has no signature to compare against, so
+	// there is nothing for a pairwise matrix to measure on it. Certification
+	// accepts such an image and stores a pHash-only certificate (see
+	// usecase.CertifyUseCase, where extraction failure is non-fatal), so this is
+	// a real and expected input, not a broken dataset. Skip those bases the way
+	// the smoke path already does instead of aborting the whole evaluation: on
+	// the 993-base Picsum set, 4 bases are featureless, and failing fatally on
+	// the first of them discards the other 989.
+	skippedBases := make(map[string]string)
 	for _, s := range m.Samples {
 		if _, ok := bases[s.BaseImageID]; ok {
+			continue
+		}
+		if _, ok := skippedBases[s.BaseImageID]; ok {
 			continue
 		}
 		b, err := os.ReadFile(s.SourcePath)
@@ -67,18 +79,25 @@ func runManifestEval(t *testing.T, manifestPath string) {
 		}
 		sig, err := ext.Compute(ctx, b)
 		if err != nil {
-			t.Fatalf("base %s: compute: %v", s.BaseImageID, err)
+			skippedBases[s.BaseImageID] = err.Error()
+			t.Logf("skip base %s: extractor rejected base (%v)", s.BaseImageID, err)
+			continue
 		}
 		bases[s.BaseImageID] = baseEntry{bytes: b, sig: sig}
 	}
-	t.Logf("loaded %d unique bases", len(bases))
+	t.Logf("loaded %d unique bases (%d skipped: no ORB features)", len(bases), len(skippedBases))
 
 	cells := make(map[string]*manifestCell)
 	var tp, fp, tn, fn int
 	var tpH, fpH, tnH, fnH int
 	var evalErrors int
 
+	skippedSamples := 0
 	for _, s := range m.Samples {
+		if _, skipped := skippedBases[s.BaseImageID]; skipped {
+			skippedSamples++
+			continue
+		}
 		base, ok := bases[s.BaseImageID]
 		if !ok {
 			evalErrors++
@@ -172,6 +191,8 @@ func runManifestEval(t *testing.T, manifestPath string) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\n=== MANIFEST EVAL REPORT ===\n")
 	fmt.Fprintf(&sb, "Manifest: %s\n", manifestPath)
+	fmt.Fprintf(&sb, "Bases   : %d evaluated, %d skipped (no ORB features); %d samples skipped with them\n",
+		len(bases), len(skippedBases), skippedSamples)
 	fmt.Fprintf(&sb, "All    : TP=%d FP=%d FN=%d TN=%d\n", tp, fp, fn, tn)
 	fmt.Fprintf(&sb, "High-CI: TP=%d FP=%d FN=%d TN=%d  Precision=%.3f Recall=%.3f F1=%.3f\n",
 		tpH, fpH, fnH, tnH, precision, recall, f1)

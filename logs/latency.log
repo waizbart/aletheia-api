@@ -1,0 +1,49 @@
+=== RUN   TestTCC_PipelineSimulation
+    tcc_experiment_test.go:401: manifest /home/waizbart/projects/aletheia-api/testdata/generated/manifest.json: 993 bases, 53622 samples, generator 1.0.0, run 2026-10-02T190807-00000000
+    tcc_experiment_test.go:404: thresholds in manifest: {MinInliers:20 MaxColorMean:8 MaxCellDist:38 MinAreaCoverage:0.42 MaxPHashDistance:96}
+    tcc_experiment_test.go:405: thresholds in code    : min_inliers=20 max_color_mean=8.0 max_cell_dist=38.0 min_area_coverage=0.42 max_phash_distance=96 top_k=64
+    tcc_experiment_test.go:408: workers=1 stride=20 out="/home/waizbart/projects/aletheia-api/results/tcc_latency.csv"
+    tcc_experiment_test.go:456: base picsum_682: ORB extraction failed, certifying pHash-only: no features detected
+    tcc_experiment_test.go:456: base picsum_728: ORB extraction failed, certifying pHash-only: no features detected
+    tcc_experiment_test.go:456: base picsum_852: ORB extraction failed, certifying pHash-only: no features detected
+    tcc_experiment_test.go:456: base picsum_994: ORB extraction failed, certifying pHash-only: no features detected
+    tcc_experiment_test.go:479: certified 993 bases in 1m19s
+    tcc_experiment_test.go:529: evaluating 2732 jobs (2682 manifest samples + 50 controls)
+2026/10/02 21:56:19 verify: feature extraction failed: no features detected
+2026/10/02 21:56:46 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 1000/2732  elapsed=9m53s  per-sample=593ms  eta=17m6s
+2026/10/02 22:05:23 verify: feature extraction failed: no features detected
+2026/10/02 22:07:43 verify: feature extraction failed: no features detected
+2026/10/02 22:11:33 verify: feature extraction failed: no features detected
+2026/10/02 22:11:33 verify: feature extraction failed: no features detected
+2026/10/02 22:11:33 verify: feature extraction failed: no features detected
+2026/10/02 22:12:36 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:641: progress 2000/2732  elapsed=19m46s  per-sample=593ms  eta=7m14s
+2026/10/02 22:15:32 verify: feature extraction failed: no features detected
+2026/10/02 22:15:38 verify: feature extraction failed: no features detected
+2026/10/02 22:15:38 verify: feature extraction failed: no features detected
+2026/10/02 22:15:39 verify: feature extraction failed: no features detected
+2026/10/02 22:17:31 verify: feature extraction failed: no features detected
+2026/10/02 22:18:53 verify: feature extraction failed: no features detected
+2026/10/02 22:19:32 verify: feature extraction failed: no features detected
+2026/10/02 22:19:33 verify: feature extraction failed: no features detected
+2026/10/02 22:19:33 verify: feature extraction failed: no features detected
+    tcc_experiment_test.go:652: per-sample records written to /home/waizbart/projects/aletheia-api/results/tcc_latency.csv
+    tcc_experiment_test.go:682: 
+        === TCC PIPELINE SIMULATION ===
+        jobs evaluated : 2732 in 26m42s (1 workers, stride 20)
+        errors         : 0
+        pipeline (manifest samples): TP=1309 FP=48 FN=579 TN=746  precision=0.965 recall=0.693
+        pairwise (manifest samples): TP=1497 FP=48 FN=381 TN=738  precision=0.969 recall=0.797
+        uncertified_image control  : 0/50 matched some certificate
+        attributions to a wrong certificate: 1
+        
+        deciding stage:
+          no_match                 990
+          orb_extract_failed       17
+          prefilter_empty          367
+          visual_match             1358
+        
+--- PASS: TestTCC_PipelineSimulation (1682.13s)
+PASS
+ok  	github.com/waizbart/aletheia-api/tests/feature	1682.535s
