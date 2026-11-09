@@ -32,13 +32,10 @@ var thumbHashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 // stream, the recent-trace history API and the candidate-thumbnail renderer,
 // all under /observability.
 //
-// The dashboard replays content hashes, verification verdicts and pipeline
-// internals, so the whole prefix sits behind admin: pass
-// handler.AdminAuth(token) in production. Routes are registered on a private
-// mux that is mounted once behind the guard, which keeps the guard impossible
-// to forget on a route added later. A nil admin leaves the dashboard open and
-// is intended only for local development and tests.
-func RegisterObservabilityRoutes(mux *http.ServeMux, c *observability.Collector, thumbs ThumbnailProvider, admin func(http.Handler) http.Handler) {
+// The dashboard is public: it needs no token, so it opens straight in a
+// browser. It replays content hashes, verification verdicts and pipeline
+// internals, so restrict who can reach the port when that matters.
+func RegisterObservabilityRoutes(mux *http.ServeMux, c *observability.Collector, thumbs ThumbnailProvider) {
 	sub, err := fs.Sub(obsStaticFS, "static/observability")
 	if err != nil {
 		panic(fmt.Sprintf("observability static fs: %v", err))
@@ -73,9 +70,8 @@ func RegisterObservabilityRoutes(mux *http.ServeMux, c *observability.Collector,
 		serveThumbnail(w, r, thumbs)
 	})
 
-	guarded := orIdentity(admin)(obs)
-	mux.Handle("GET /observability", guarded)
-	mux.Handle("/observability/", guarded)
+	mux.Handle("GET /observability", obs)
+	mux.Handle("/observability/", obs)
 }
 
 // serveThumbnail renders a candidate preview from the certificate's stored
